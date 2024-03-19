@@ -24,6 +24,11 @@ def laplacian_pyramid_torch(img, height):
         filtered= F.conv2d(current,gaussian_kernal, padding=2, groups=current.shape[1])
         downsampled= filtered[:,:,::2,::2]
         output = F.upsample(downsampled, scale_factor=2, mode='bilinear')
+        if(output.shape[2]!=current.shape[2]):
+            output=output[:,:,0:-1,:]
+        if(output.shape[3]!=current.shape[3]):
+            output=output[:,:,:,0:-1]
+        
         print(current.shape)
         print(downsampled.shape)
         print(output.shape)
@@ -31,6 +36,18 @@ def laplacian_pyramid_torch(img, height):
         laplacian_pyr.append(diff)
         current=downsampled
     return laplacian_pyr    
+
+def laplacian_pyramid_torch_2(img, levels):
+    pyramid = []
+    current_level = img
+    for i in range(levels - 1):
+        down = F.avg_pool2d(current_level, kernel_size=2, stride=2)
+        up = F.interpolate(down, scale_factor=2, mode='bilinear', align_corners=False)
+        residual = current_level - up
+        pyramid.append(residual)
+        current_level = down
+    pyramid.append(current_level)
+    return pyramid
 
 def laplacian_pyramid(gpA,height):
     laplacian_pyr = [gpA[-1]]
@@ -80,12 +97,15 @@ inputs=torch.tensor(np.array([image]))
 # inputs=torch.randn(2,3,256,256)* 255
 # inputs.cuda()
 # print(inputs.shape)
-lpA=laplacian_pyramid_torch(inputs,3)
+lpA=laplacian_pyramid_torch_2(inputs,3)
+lpaB=laplacian_pyramid(gaussian_pyramid(img,3),3)
+print(lpA)
+print(lpaB)
 
 lpA=[l.numpy().transpose(2,3,1,0).squeeze() for l in lpA]
-print([l for l in lpA])
-# gpA=gaussian_pyramid(frame,height)
-# lpA=laplacian_pyramid(gpA, height)
+# print([l for l in lpA])
+# # gpA=gaussian_pyramid(frame,height)
+# # lpA=laplacian_pyramid(gpA, height)
 
 img= reconstruct_image(lpA, 3)
 
