@@ -135,7 +135,6 @@ lpA=laplacian_pyramid(inputs,5)
 img2= reconstruct_image(lpA, 5)
 
 img2=img2.numpy().transpose(2,3,1,0).squeeze()
-print(img.shape)
 cv2.imwrite("torch_reconstruction.png",img2)
 
 # cv2.imwrite("Pyramid_2.jpeg", img)
