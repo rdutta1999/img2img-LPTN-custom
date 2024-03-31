@@ -285,3 +285,6 @@ class CustomLoss(nn.Module):
 
         # loss_weight is always 1.0 for discriminators
         return loss if is_disc else loss * self.loss_weight
+    
+    def compute_gradient_penalty():
+        pass
