@@ -9,16 +9,27 @@ import torchvision
 import albumentations as A
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
+import sys
+sys.path.append("./mit-adobe-fivek-dataset/")
+sys.path.append("./src/")
 
-from model import U2NET
+from dataset.fivek import MITAboveFiveK
+# from model import U2NET
 from pathlib import Path
 from natsort import natsorted
-# from tqdm.notebook import tqdm
+from tqdm.notebook import tqdm
 from tqdm import tqdm
 from PIL import Image, ImageOps
 from torch.autograd import Variable
 from albumentations.pytorch import ToTensorV2
 from torch.utils.data import Dataset, DataLoader
+INPUT_SZ=(300,300)
+DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+use_amp = False
+scaler = torch.cuda.amp.GradScaler(enabled = use_amp)
+
+moving_loss = {'train': 0, 'valid': 0}
+loss_values = {"train": [], "valid": []}
 
 from LPTN_Network import LPTN_Network
 
@@ -114,45 +125,51 @@ def augment_normalize(doAugment = True, doNormalize = True, doTensored = True):
     return A.Compose(transform)
 
 class CustomDataset(Dataset):
-    def __init__(self, images_dir, masks_dir, preprocessing = None):
+    def __init__(self, images_dir, target_dir, preprocessing = None):
         self.images_dir = images_dir
-        self.masks_dir = masks_dir
+        self.target_dir=target_dir
         self.preprocessing = preprocessing
+
         
         self.image_ids = natsorted(os.listdir(self.images_dir))
+        self.target_ids=natsorted(os.listdir(self.target_dir))
         self.n_imgs = len(self.image_ids)
         print("Number of Images found: ", self.n_imgs)
         
     def __getitem__(self, i):
         image_id = self.image_ids[i]
+        target_id = self.target_ids[i]
+        
         name = "".join(image_id.split(".")[:-1])
         
         image_path = os.path.join(self.images_dir, image_id)
-        mask_path = os.path.join(self.masks_dir, name + ".png")
-        
+        target_path=os.path.join(self.target_dir, target_id)
         
         image = Image.open(image_path).convert("RGB")
+        target = Image.open(target_path).convert("RGB")
+
         #image = ImageOps.exif_transpose(image)
         
-        mask = Image.open(mask_path).convert("L")
-        assert (image.size == mask.size)
+        # mask = Image.open(mask_path).convert("L")
+#         assert (image.size == mask.size)
         
         image_arr = np.array(image)     
-        
-        mask_arr = np.array(mask)
-        mask_arr[mask_arr > 0] = 255
-        mask_arr = np.expand_dims(mask_arr, -1)
+        target_arr=np.array(target)
+        # mask_arr = np.array(mask)
+        # mask_arr[mask_arr > 0] = 255
+        # mask_arr = np.expand_dims(mask_arr, -1)
         
         image_T, mask_T = None, None 
         if self.preprocessing:
-            sample = self.preprocessing(image = image_arr, mask = mask_arr)
-            image_T, mask_T = sample['image'], sample['mask']
-
-        return image_T, mask_T
+            sample = self.preprocessing(image = image_arr)
+            image_T = sample['image'] 
+            sample = self.preprocessing(image = target_arr)
+            target_T= sample['image']
+        return image_T, target_T
 
     def __len__(self):
         return self.n_imgs
-    
+     
 def train(train_loader, model, criterion, optimizer, scheduler, epoch, beta, use_weighted_loss_train):
     model.train()
     stream = tqdm(train_loader)
@@ -160,13 +177,13 @@ def train(train_loader, model, criterion, optimizer, scheduler, epoch, beta, use
     for i, (images, targets) in enumerate(stream, start=1):        
         images = images.to(DEVICE, non_blocking = True, dtype = torch.float)
         targets = targets.to(DEVICE, non_blocking = True, dtype = torch.float)
-        
+        if(len(images.shape)==3):
+            images=images[None,:,:,:]
         #optimizer.zero_grad(set_to_none = True)
         optimizer.zero_grad()
-        
         with torch.cuda.amp.autocast(enabled = use_amp):
             outputs = model(images)  
-            loss = criterion(outputs, targets, includeBoundaryLoss = use_weighted_loss_train)
+            loss = criterion(outputs, targets)
      
         if moving_loss['train']:
             moving_loss['train'] = beta * moving_loss['train'] + (1-beta) * loss.item()
@@ -201,7 +218,6 @@ def validate(val_loader, model, criterion, epoch, beta):
             with torch.cuda.amp.autocast(enabled = use_amp):
                 outputs = model(images)            
                 loss = criterion(outputs, targets)
-
             if moving_loss['valid']:
                 moving_loss['valid'] = beta * moving_loss['valid'] + (1-beta) * loss.item()
             else:
@@ -218,33 +234,34 @@ def train_and_validate(model, train_loader, val_loader, criterion, optimizer, sc
     
     for epoch in range(start_epoch + 1, start_epoch + n_epochs + 1):        
         train(train_loader, model, criterion, optimizer, scheduler, epoch, beta, use_weighted_loss_train)
-        validate(val_loader, model, criterion, epoch, beta)
+        # validate(val_loader, model, criterion, epoch, beta)
         
         ckpt_path = os.path.join(ckpt_dir, "{epoch}.pth".format(epoch = epoch))
         
-        if epoch % save_freq == 0:
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
-                }, ckpt_path)
+        # if epoch % save_freq == 0:
+        #     torch.save({
+        #         'epoch': epoch,
+        #         'model_state_dict': model.state_dict(),
+        #         'optimizer_state_dict': optimizer.state_dict(),
+        #         'scheduler_state_dict': scheduler.state_dict(),
+        #         }, ckpt_path)
         
     return model
 
 def main():
+    
     device = "cpu"
     if torch.cuda.is_available():
         device = "cuda"
 
-    X_DIR = "C:/Users/RAJDEEP/Downloads/archive/images"
-    Y_DIR = "C:/Users/RAJDEEP/Downloads/archive/annotations"
+    X_DIR = "/home/kumar/LPTN/datasets/FiveK/FiveK_480p/"
+    Y_DIR = "/home/kumar/LPTN/datasets/FiveK/FiveK_480p/"
 
-    X_TRAIN_DIR = os.path.join(X_DIR, "train")
-    Y_TRAIN_DIR = os.path.join(Y_DIR, "train")
+    X_TRAIN_DIR = os.path.join(X_DIR, "train/A")
+    Y_TRAIN_DIR = os.path.join(Y_DIR, "train/A")
 
-    X_VALID_DIR = os.path.join(X_DIR, "val")
-    Y_VALID_DIR = os.path.join(Y_DIR, "val")
+    X_VALID_DIR = os.path.join(X_DIR, "test/A")
+    Y_VALID_DIR = os.path.join(Y_DIR, "test/B")
 
     DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
@@ -256,14 +273,14 @@ def main():
     INPUT_SZ = (320, 320)
     #INPUT_SZ = (720, 720)
 
-
+    # fivek = MITAboveFiveK(root="datasets/", split="train", download=True, experts=["c"])
     train_dataset = CustomDataset(X_TRAIN_DIR, 
-                                Y_TRAIN_DIR, 
+                                  X_TRAIN_DIR,
                                 preprocessing = augment_normalize(doAugment = True, 
                                                                     doNormalize = True,
-                                                                    doTensored = True))
+                                                                    doTensored = True))[0]
     val_dataset = CustomDataset(X_VALID_DIR, 
-                                Y_VALID_DIR, 
+                                X_VALID_DIR,
                                 preprocessing = augment_normalize(doAugment = False, 
                                                                 doNormalize = True,
                                                                 doTensored = True))
@@ -280,16 +297,15 @@ def main():
                             num_workers = 0, 
                             pin_memory = True)
 
+    # # ToDO  - Define the Loss Functions
 
-    # ToDO  - Define the Loss Functions
-
-    # Define the Model
+    # # Define the Model
     model = LPTN_Network()
 
 
-    # Training Params / HyperParams
+    # # Training Params / HyperParams
     start_epoch = 0
-    n_epochs = 15
+    n_epochs = 1000
 
     learning_rate = 0.001
 
@@ -298,8 +314,8 @@ def main():
                                                     steps_per_epoch = len(train_loader), 
                                                     epochs = n_epochs)
 
-    # DEFINE LOSS FUNC
-    #loss_fn = 
+    # # DEFINE LOSS FUNC
+    loss_fn=torch.nn.MSELoss()
     save_freq = 3
     beta = 0.9
     use_weighted_loss_train = True
@@ -325,3 +341,6 @@ def main():
                            beta = beta,
                            use_weighted_loss_train = use_weighted_loss_train)
     
+
+if __name__=="__main__":
+    main()

@@ -71,7 +71,8 @@ class LPTN_Network(nn.Module):
         
     def forward(self, x):
         #Construct pyramid from input, x is a tensor of dimensions (N, C, W, H), typically C will be 3 as we're working with RGB images
-        pyramid=laplacian_pyramid(x,self.depth) 
+        
+        pyramid=laplacian_pyramid(x,self.depth, next(self.parameters()).device) 
         # Extract bottom layer of the pyramid
         low_freq_component=pyramid[-1]
         # Pass through the low frequency layers
@@ -96,22 +97,24 @@ class LPTN_Network(nn.Module):
         mask_upsampled_2_output= self.other_freq_2_layers(mask_upsampled_2)
         other_freq_component_2_output=mask_upsampled_2_output*other_freq_component_2
         # Return pyramid of components in order from largest to smallest to allow for reconstruction, should we return reconstruction as well? Depends on loss implementation
-        return [other_freq_component_2_output, other_freq_component_1_output, high_freq_output, low_freq_output]
-    
-# Small test code given you have an image named image.png in the directory
+        return reconstruct_image([other_freq_component_2_output, other_freq_component_1_output, high_freq_output, low_freq_output], self.depth)
+        
+# Small test code given you have an image named image.png in the directory h
     
     
 # net=LPTN_Network()
-
+# state_dict=torch.load("../model_checkpoints/60.pth")
+# net.load_state_dict(state_dict['model_state_dict'])
 # img=cv2.imread("image.png")
     
 # image=img
-
 # image=np.float32(np.transpose(image,(2,0,1)))
 # inp=torch.tensor(np.array([image]))
+# print(inp.shape)
+
 # # inp=torch.rand((1,3,100,300))
 # translated_pyr=net(inp)
 
-# img=reconstruct_image(translated_pyr, net.depth)
+# # img=reconstruct_image(translated_pyr, net.depth)
 
-# cv2.imwrite("LPTN_Output.png", img.detach().numpy().transpose(2,3,1,0).squeeze())
+# cv2.imwrite("LPTN_Output.png", translated_pyr.detach().numpy().transpose(2,3,1,0).squeeze())

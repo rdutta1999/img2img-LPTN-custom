@@ -36,12 +36,12 @@ def gaussian_pyramid(frame, height):
 #         laplacian_pyr.append(diff)
 #         current=downsampled
 #     return laplacian_pyr    
-def laplacian_pyramid(img, levels):
+def laplacian_pyramid(img, levels, device):
     pyramid = []
     
     current_level = img.clone()
     
-    gaussian_kernal=(1/273) * torch.Tensor([[1,4,7,4,1],[4,16,26,16,4],[7,26,41,26,7],[4,16,26,16,4], [1,4,7,4,1]]).repeat(current_level.shape[1],1,1,1)
+    gaussian_kernal=(1/273) * torch.Tensor([[1,4,7,4,1],[4,16,26,16,4],[7,26,41,26,7],[4,16,26,16,4], [1,4,7,4,1]]).repeat(current_level.shape[1],1,1,1).to(device=device)
     
     for i in range(levels - 1):
         filtered= F.conv2d(current_level,gaussian_kernal, padding=2, groups=current_level.shape[1])
@@ -114,28 +114,28 @@ def display_images(images, titles=None, cols=3, figsize=(15, 10)):
     plt.tight_layout()
     plt.savefig("Pyramid.png")
 
-img=cv2.imread("image.png")
+# img=cv2.imread("image.png")
     
-image=img
+# image=img
 
-image=np.float32(np.transpose(image,(2,0,1)))
-inputs=torch.tensor(np.array([image]))
-# frame = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-# height = 4
+# image=np.float32(np.transpose(image,(2,0,1)))
+# inputs=torch.tensor(np.array([image]))
+# # frame = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+# # height = 4
 
-# inputs=torch.randn(2,3,256,256)* 255
-# inputs.cuda()
-# print(inputs.shape)
-lpA=laplacian_pyramid(inputs,5)
-# lpA=[l.numpy().transpose(2,3,1,0).squeeze() for l in lpA]
-# print([l for l in lpA])
-# # gpA=gaussian_pyramid(frame,height)
-# # lpA=laplacian_pyramid(gpA, height)
+# # inputs=torch.randn(2,3,256,256)* 255
+# # inputs.cuda()
+# # print(inputs.shape)
+# lpA=laplacian_pyramid(inputs,5)
+# # lpA=[l.numpy().transpose(2,3,1,0).squeeze() for l in lpA]
+# # print([l for l in lpA])
+# # # gpA=gaussian_pyramid(frame,height)
+# # # lpA=laplacian_pyramid(gpA, height)
 
-img2= reconstruct_image(lpA, 5)
+# img2= reconstruct_image(lpA, 5)
 
-img2=img2.numpy().transpose(2,3,1,0).squeeze()
-cv2.imwrite("torch_reconstruction.png",img2)
+# img2=img2.numpy().transpose(2,3,1,0).squeeze()
+# cv2.imwrite("torch_reconstruction.png",img2)
 
 # cv2.imwrite("Pyramid_2.jpeg", img)
 # display_images(lpA)
