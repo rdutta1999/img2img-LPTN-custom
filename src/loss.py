@@ -261,6 +261,7 @@ def compute_gradient_penalty(D, real_samples, fake_samples):
 
 class CustomLoss(nn.Module):
     def __init__(self):
+        super(CustomLoss, self).__init__()
         self.real_label_val = 1.0
         self.fake_label_val = 0.0    
 
