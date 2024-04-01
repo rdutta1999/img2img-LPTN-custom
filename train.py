@@ -108,7 +108,7 @@ def augment_normalize(doAugment = True, doNormalize = True, doTensored = True):
             
     transform.extend([
         A.Lambda(image = resize_to_inputsz, mask = resize_to_inputsz, p = 1.0),
-        A.Lambda(mask = scale_0_1, p = 1.0),            
+        A.Lambda(mask = scale_0_1, p = 1.0),          
     ])
 
 
@@ -253,7 +253,8 @@ def main():
     device = "cpu"
     if torch.cuda.is_available():
         device = "cuda"
-
+    
+    # ToDo - Make these args - argparse
     X_DIR = "/home/kumar/LPTN/datasets/FiveK/FiveK_480p/"
     Y_DIR = "/home/kumar/LPTN/datasets/FiveK/FiveK_480p/"
 
@@ -302,7 +303,6 @@ def main():
     # # Define the Model
     model = LPTN_Network()
 
-
     # # Training Params / HyperParams
     start_epoch = 0
     n_epochs = 1000
@@ -340,7 +340,5 @@ def main():
                            save_freq = save_freq,
                            beta = beta,
                            use_weighted_loss_train = use_weighted_loss_train)
-    
-
 if __name__=="__main__":
     main()
