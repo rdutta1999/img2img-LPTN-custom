@@ -23,7 +23,7 @@ class Discriminator(nn.Module):
             # *discriminator_block(128, 128),
             nn.Conv2d(16, 32, 3, stride=2, padding=1),
             nn.LeakyReLU(0.2),
-            nn.Conv2d(32, 54, 3, stride=2, padding=1),
+            nn.Conv2d(32, 64, 3, stride=2, padding=1),
             nn.LeakyReLU(0.2),
             nn.Conv2d(64, 128, 3, stride=2, padding=1),
             nn.LeakyReLU(0.2),

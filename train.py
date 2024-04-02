@@ -133,8 +133,8 @@ class CustomDataset(Dataset):
         self.preprocessing = preprocessing
 
         
-        self.image_ids = natsorted(os.listdir(self.images_dir))
-        self.target_ids=natsorted(os.listdir(self.target_dir))
+        self.image_ids = natsorted(os.listdir(self.images_dir))[0:1]        
+        self.target_ids=natsorted(os.listdir(self.target_dir))[0:1]
         self.n_imgs = len(self.image_ids)
         print("Number of Images found: ", self.n_imgs)
         
@@ -142,7 +142,7 @@ class CustomDataset(Dataset):
         image_id = self.image_ids[i]
         target_id = self.target_ids[i]
         
-        name = "".join(image_id.split(".")[:-1])
+        # name = "".join(image_id.split(".")[:-1])
         
         image_path = os.path.join(self.images_dir, image_id)
         target_path=os.path.join(self.target_dir, target_id)
@@ -175,8 +175,7 @@ class CustomDataset(Dataset):
 def train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc, scheduler, epoch, beta, use_weighted_loss_train):
     model.train()
     disc.train()
-    stream = tqdm(train_loader)
-    
+    stream = tqdm(train_loader, disable=True)
     for i, (images, targets) in enumerate(stream, start=1): 
         images = images.to(DEVICE, non_blocking = True, dtype = torch.float)
         targets = targets.to(DEVICE, non_blocking = True, dtype = torch.float)
@@ -189,10 +188,10 @@ def train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc,
 
         optimizer_model.zero_grad()  #optimizer.zero_grad(set_to_none = True)
         # with torch.cuda.amp.autocast(enabled = use_amp):
-        output = model(images)
+        output = model(images)        
         disc_out = disc(output)
 
-        loss_model = criterion[0](output, targets) + criterion[1](disc_out, target_is_real = True, is_disc=False)
+        loss_model = criterion[0](output, images) + criterion[1](disc_out, target_is_real = True, is_disc=False)
      
         # if moving_loss['train']:
         #     moving_loss['train'] = beta * moving_loss['train'] + (1-beta) * loss_model.item()
@@ -225,7 +224,6 @@ def train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc,
         optimizer_disc.zero_grad()
         # with torch.cuda.amp.autocast(enabled = use_amp):
         output = model(images)
-
         disc_out_real = disc(targets)
         loss_disc_real = criterion[1](disc_out_real, target_is_real = True, is_disc=True)
 
@@ -234,11 +232,11 @@ def train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc,
 
         gradient_loss = CustomLoss.compute_gradient_penalty(disc, targets, output)
         gp_opt = 100
-
         loss_disc = loss_disc_real + loss_disc_fake + (gp_opt * gradient_loss)
-     
         loss_disc.backward()
         optimizer_disc.step()
+        print(loss_disc.detach().item(), loss_model.detach().item())
+        
 
 
 def validate(val_loader, model, criterion, epoch, beta):
@@ -281,7 +279,7 @@ def train_and_validate(model, disc, train_loader, val_loader, criterion, optimiz
         #         'scheduler_state_dict': scheduler.state_dict(),
         #         }, ckpt_path)
         
-    return model
+    return disc,model
 
 def main():
     
@@ -294,7 +292,7 @@ def main():
     Y_DIR = "/home/kumar/LPTN/datasets/FiveK/FiveK_480p/"
 
     X_TRAIN_DIR = os.path.join(X_DIR, "train/A")
-    Y_TRAIN_DIR = os.path.join(Y_DIR, "train/A")
+    Y_TRAIN_DIR = os.path.join(Y_DIR, "train/B")
 
     X_VALID_DIR = os.path.join(X_DIR, "test/A")
     Y_VALID_DIR = os.path.join(Y_DIR, "test/B")
@@ -303,7 +301,7 @@ def main():
 
     CHECKPOINT_DIR = "./model_checkpoints"
 
-    TRAIN_BS = 8
+    TRAIN_BS = 1
     VALID_BS = 1
 
     INPUT_SZ = (320, 320)
@@ -311,10 +309,10 @@ def main():
 
     # fivek = MITAboveFiveK(root="datasets/", split="train", download=True, experts=["c"])
     train_dataset = CustomDataset(X_TRAIN_DIR, 
-                                  X_TRAIN_DIR,
+                                  Y_TRAIN_DIR,
                                 preprocessing = augment_normalize(doAugment = True, 
                                                                     doNormalize = True,
-                                                                    doTensored = True))[0]
+                                                                    doTensored = True))
     val_dataset = CustomDataset(X_VALID_DIR, 
                                 X_VALID_DIR,
                                 preprocessing = augment_normalize(doAugment = False, 
@@ -338,7 +336,6 @@ def main():
     # # Define the Model
     model = LPTN_Network()
     disc = Discriminator()
-
     # # Training Params / HyperParams
     start_epoch = 0
     n_epochs = 1000
@@ -369,8 +366,8 @@ def main():
     loss_values = {"train": [], "valid": []}
 
     model.to(DEVICE)
-
-    model, disc = train_and_validate(model, disc 
+    disc.to(DEVICE)
+    model, disc = train_and_validate(model, disc, 
                            train_loader, 
                            val_loader,
                            criterion = (mse_loss, gan_loss),
