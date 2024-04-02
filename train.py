@@ -32,6 +32,8 @@ moving_loss = {'train': 0, 'valid': 0}
 loss_values = {"train": [], "valid": []}
 
 from LPTN_Network import LPTN_Network
+from Discriminator import Discriminator
+from loss import CustomLoss
 
 def resize_to_inputsz(x, **kwargs):
     
@@ -170,41 +172,74 @@ class CustomDataset(Dataset):
     def __len__(self):
         return self.n_imgs
      
-def train(train_loader, model, criterion, optimizer, scheduler, epoch, beta, use_weighted_loss_train):
+def train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc, scheduler, epoch, beta, use_weighted_loss_train):
     model.train()
+    disc.train()
     stream = tqdm(train_loader)
     
-    for i, (images, targets) in enumerate(stream, start=1):        
+    for i, (images, targets) in enumerate(stream, start=1): 
         images = images.to(DEVICE, non_blocking = True, dtype = torch.float)
         targets = targets.to(DEVICE, non_blocking = True, dtype = torch.float)
         if(len(images.shape)==3):
             images=images[None,:,:,:]
-        #optimizer.zero_grad(set_to_none = True)
-        optimizer.zero_grad()
-        with torch.cuda.amp.autocast(enabled = use_amp):
-            outputs = model(images)  
-            loss = criterion(outputs, targets)
+
+        # Optimizing the Generator
+        for p in disc.parameters():
+            p.requires_grad = False       
+
+        optimizer_model.zero_grad()  #optimizer.zero_grad(set_to_none = True)
+        # with torch.cuda.amp.autocast(enabled = use_amp):
+        output = model(images)
+        disc_out = disc(output)
+
+        loss_model = criterion[0](output, targets) + criterion[1](disc_out, target_is_real = True, is_disc=False)
      
-        if moving_loss['train']:
-            moving_loss['train'] = beta * moving_loss['train'] + (1-beta) * loss.item()
-        else:
-            moving_loss['train'] = loss.item()
+        # if moving_loss['train']:
+        #     moving_loss['train'] = beta * moving_loss['train'] + (1-beta) * loss_model.item()
+        # else:
+        #     moving_loss['train'] = loss_model.item()
             
-        loss_values['train'].append(moving_loss['train'])
+        # loss_values['train'].append(moving_loss['train'])
         
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-
-        scale = scaler.get_scale()
-        scaler.update()
-        skip_lr_sched = (scale > scaler.get_scale())
+        loss_model.backward()
+        optimizer_model.step()
         
-        if not skip_lr_sched:
-            scheduler.step()      
+        # scaler.scale(loss).backward()
+        # scaler.step(optimizer_model)
 
-        stream.set_description(
-            "Epoch: {epoch}.  --Train--  Loss: {m_loss:04f}".format(epoch = epoch, m_loss = moving_loss['train'])
-        )
+        # scale = scaler.get_scale()
+        # scaler.update()
+        # skip_lr_sched = (scale > scaler.get_scale())
+        
+        # if not skip_lr_sched:
+        #     scheduler.step()      
+
+        # stream.set_description(
+        #     "Epoch: {epoch}.  --Train--  Loss: {m_loss:04f}".format(epoch = epoch, m_loss = moving_loss['train'])
+        # )
+
+        # Optimizing the Discriminator
+        for p in disc.parameters():
+            p.requires_grad = True 
+        
+        optimizer_disc.zero_grad()
+        # with torch.cuda.amp.autocast(enabled = use_amp):
+        output = model(images)
+
+        disc_out_real = disc(targets)
+        loss_disc_real = criterion[1](disc_out_real, target_is_real = True, is_disc=True)
+
+        disc_out_fake = disc(output)
+        loss_disc_fake = criterion[1](disc_out_fake, target_is_real = False, is_disc=True)
+
+        gradient_loss = CustomLoss.compute_gradient_penalty(disc, targets, output)
+        gp_opt = 100
+
+        loss_disc = loss_disc_real + loss_disc_fake + (gp_opt * gradient_loss)
+     
+        loss_disc.backward()
+        optimizer_disc.step()
+
 
 def validate(val_loader, model, criterion, epoch, beta):
     model.eval()
@@ -228,12 +263,12 @@ def validate(val_loader, model, criterion, epoch, beta):
                 "Epoch: {epoch}.  --Valid--  Loss: {m_loss:04f}".format(epoch = epoch, m_loss = moving_loss['valid'])
             )
 
-def train_and_validate(model, train_loader, val_loader, criterion, optimizer, scheduler, start_epoch, 
+def train_and_validate(model, disc, train_loader, val_loader, criterion, optimizer_model, optimizer_disc, scheduler, start_epoch, 
                        n_epochs, ckpt_dir, save_freq, beta, use_weighted_loss_train):    
     os.makedirs(ckpt_dir, exist_ok = True)
     
     for epoch in range(start_epoch + 1, start_epoch + n_epochs + 1):        
-        train(train_loader, model, criterion, optimizer, scheduler, epoch, beta, use_weighted_loss_train)
+        train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc, scheduler, epoch, beta, use_weighted_loss_train)
         # validate(val_loader, model, criterion, epoch, beta)
         
         ckpt_path = os.path.join(ckpt_dir, "{epoch}.pth".format(epoch = epoch))
@@ -302,6 +337,7 @@ def main():
 
     # # Define the Model
     model = LPTN_Network()
+    disc = Discriminator()
 
     # # Training Params / HyperParams
     start_epoch = 0
@@ -309,13 +345,19 @@ def main():
 
     learning_rate = 0.001
 
-    optimizer = torch.optim.Adam(model.parameters(), lr = learning_rate, betas = (0.9, 0.999), eps = 1e-08, weight_decay = 0)
-    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr = learning_rate, 
-                                                    steps_per_epoch = len(train_loader), 
-                                                    epochs = n_epochs)
+    optimizer_model = torch.optim.Adam(model.parameters(), lr = learning_rate, betas = (0.9, 0.999), eps = 1e-08, weight_decay = 0)
+    optimizer_disc = torch.optim.Adam(model.parameters(), lr = learning_rate, betas = (0.9, 0.999), eps = 1e-08, weight_decay = 0)
+    
+    # scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr = learning_rate, 
+    #                                                 steps_per_epoch = len(train_loader), 
+    #                                                 epochs = n_epochs)
 
     # # DEFINE LOSS FUNC
-    loss_fn=torch.nn.MSELoss()
+    custom_loss = CustomLoss()
+
+    mse_loss = custom_loss.get_reconstruction_loss
+    gan_loss = custom_loss.get_gan_loss
+
     save_freq = 3
     beta = 0.9
     use_weighted_loss_train = True
@@ -328,12 +370,14 @@ def main():
 
     model.to(DEVICE)
 
-    model = train_and_validate(model, 
+    model, disc = train_and_validate(model, disc 
                            train_loader, 
                            val_loader,
-                           criterion = loss_fn, # ToDO
-                           optimizer = optimizer,
-                           scheduler = scheduler,
+                           criterion = (mse_loss, gan_loss),
+                           optimizer_model = optimizer_model,
+                           optimizer_disc = optimizer_disc,
+                        #    scheduler = scheduler,
+                           scheduler = None,
                            start_epoch = start_epoch,
                            n_epochs = n_epochs,                           
                            ckpt_dir = CHECKPOINT_DIR,

@@ -267,11 +267,11 @@ class CustomLoss(nn.Module):
 
         self.loss_weight = 1.0    
 
-    def reconstruction_loss(self, pred_img, inp_img, loss_wt = 1.0):
+    def get_reconstruction_loss(self, pred_img, inp_img, loss_wt = 1.0):
         mse_loss = torch.nn.MSELoss()
         return loss_wt * mse_loss(pred_img, inp_img)
     
-    def gan_loss(self, input, target_is_real, is_disc=False):
+    def get_gan_loss(self, input, target_is_real, is_disc=False):
 
         # target_val = (self.real_label_val if target_is_real else self.fake_label_val)
         # target_val = input.new_ones(input.size()) * target_val
@@ -287,5 +287,25 @@ class CustomLoss(nn.Module):
         # loss_weight is always 1.0 for discriminators
         return loss if is_disc else loss * self.loss_weight
     
-    def compute_gradient_penalty():
-        pass
+    # NEED TO REWRITE GRADIENT PENALTY
+    def compute_gradient_penalty(D, real_samples, fake_samples):
+
+        # Random weight term for interpolation between real and fake samples
+        alpha = torch.cuda.FloatTensor(np.random.random((real_samples.size(0), 1, 1, 1)))
+        # Get random interpolation between real and fake samples
+        interpolates = (alpha * real_samples + ((1 - alpha) * fake_samples)).requires_grad_(True)
+        d_interpolates = D(interpolates)
+        fake = Variable(torch.cuda.FloatTensor(real_samples.shape[0], 1, 1, 1).fill_(1.0), requires_grad=False)
+        # Get gradient w.r.t. interpolates
+        gradients = autograd.grad(
+            outputs=d_interpolates,
+            inputs=interpolates,
+            grad_outputs=fake,
+            create_graph=True,
+            retain_graph=True,
+            only_inputs=True,
+        )[0]
+        gradients = gradients.view(gradients.size(0), -1)
+        gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+        return gradient_penalty
+        
