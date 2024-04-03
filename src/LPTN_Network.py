@@ -2,7 +2,7 @@ import os
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
+import torchvision
 from torch.nn import functional as F
 from Utils import laplacian_pyramid, reconstruct_image
 import cv2
@@ -16,7 +16,6 @@ class ResidualBlock(nn.Module):
             nn.Conv2d(features, features, kernel_size=3, stride=1,padding=1),
             nn.LeakyReLU(),
             nn.Conv2d(features, features, kernel_size=3, stride=1,padding=1),
-            nn.LeakyReLU()            
         )
     # Pass through layers and add input to the output
     def forward(self,x):
@@ -49,24 +48,27 @@ class LPTN_Network(nn.Module):
     )
         # High frequency layers (as defined in the paper, should probably have a better name)
         self.high_frequency_layers=nn.Sequential(
-            nn.Conv2d(in_channels=9, out_channels=16,kernel_size=3, stride=1,padding=1),
+            nn.Conv2d(in_channels=9, out_channels=64,kernel_size=3, stride=1,padding=1),
             nn.LeakyReLU(),
-            ResidualBlock(16),
-            ResidualBlock(16),
-            ResidualBlock(16),
-            nn.Conv2d(in_channels=16, out_channels=1,kernel_size=3, stride=1,padding=1),
+            ResidualBlock(64),
+            ResidualBlock(64),
+            ResidualBlock(64),
+            nn.Conv2d(in_channels=64, out_channels=3,kernel_size=3, stride=1,padding=1),
+            nn.Conv2d(3,16,1),
+            nn.LeakyReLU(),
+            nn.Conv2d(16,3,1)            
         )
         # Shallow layers for second highest frequencies (maybe a better name here?)
         self.other_freq_1_layers=nn.Sequential(
-            nn.Conv2d(in_channels=1,out_channels=16, kernel_size=3,stride=1, padding=1),
+            nn.Conv2d(3,16,1),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=16,out_channels=1, kernel_size=3,stride=1, padding=1),
+            nn.Conv2d(16,3,1),
         )
         # Shallow layers for highest frequencies
         self.other_freq_2_layers=nn.Sequential(
-            nn.Conv2d(in_channels=1,out_channels=16, kernel_size=3,stride=1, padding=1),
+            nn.Conv2d(3,16,1),
             nn.LeakyReLU(),
-            nn.Conv2d(in_channels=16,out_channels=1, kernel_size=3,stride=1, padding=1),
+            nn.Conv2d(16,3,1),
         )
         
     def forward(self, x):
@@ -75,6 +77,7 @@ class LPTN_Network(nn.Module):
         pyramid=laplacian_pyramid(x,self.depth, next(self.parameters()).device) 
         # Extract bottom layer of the pyramid
         low_freq_component=pyramid[-1]
+        
         # Pass through the low frequency layers
         low_freq_output=self.low_frequency_layers(low_freq_component)
         # Following the paper closely here, variable names could use some work as earlier
