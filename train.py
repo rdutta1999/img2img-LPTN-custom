@@ -39,7 +39,7 @@ from Discriminator import Discriminator
 from loss import CustomLoss
 np.random.seed(10)
 random.seed(16)
-torch.manual_seed(10)
+torch.manual_seed(30)
 def resize_to_inputsz(x, **kwargs):
     
     # For RGB images with 3 channels:
@@ -347,7 +347,7 @@ def train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc,
         loss[f"Epoch{epoch}"]['discriminator_fake']=loss_disc_fake
         loss[f"Epoch{epoch}"]['discriminator_gradient_loss']=gradient_loss
         loss[f"Epoch{epoch}"]['discriminator']=loss_disc
-        
+        # print(loss)
         # print( loss_model.detach().item(),loss_disc.detach().item())
         # torchvision.utils.save_image(output, "reconstruction.png")
         # torchvision.utils.save_image(images, "input.png")        
@@ -398,7 +398,7 @@ def train_and_validate(model, disc, train_loader, val_loader, criterion, optimiz
         loss=train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc, scheduler, epoch, beta, use_weighted_loss_train)
         # validate(val_loader, model, criterion, epoch, beta)
         losses[f"Epoch{epoch}"]=loss[f"Epoch{epoch}"]
-        print(losses)
+        print(loss)
         ckpt_path = os.path.join(ckpt_dir, "{epoch}.pth".format(epoch = epoch))
         
         if epoch % save_freq == 0:
@@ -433,7 +433,7 @@ def main():
 
     DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-    CHECKPOINT_DIR = "./model_checkpoints"
+    CHECKPOINT_DIR = "./model_checkpoints_5"
 
     TRAIN_BS = 16
     VALID_BS = 1
@@ -472,7 +472,7 @@ def main():
     disc = Discriminator()
     # # Training Params / HyperParams
     start_epoch = 0
-    n_epochs = 5
+    n_epochs = 500
 
     learning_rate = 0.0001
     optim_params = []
@@ -493,7 +493,7 @@ def main():
     mse_loss = custom_loss.get_reconstruction_loss
     gan_loss = custom_loss.get_gan_loss
 
-    save_freq = 1
+    save_freq = 100
     beta = 0.9
     use_weighted_loss_train = True
 
