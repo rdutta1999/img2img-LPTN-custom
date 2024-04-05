@@ -322,8 +322,8 @@ if __name__=="__main__":
     CHECKPOINT_DIR = "./model_checkpoints_5"
     
     INPUT_SZ = (256,256)
-    TRAIN_BS = 16
-    VALID_BS = 1
+    TRAIN_BS = 32
+    VALID_BS = 4
 
     moving_loss = {'train': 0, 'valid': 0}
     loss_values = {"train": [], "valid": []}
