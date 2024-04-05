@@ -19,10 +19,6 @@ class CustomLoss(nn.Module):
         return loss_wt * mse_loss(pred_img, inp_img)
     
     def get_gan_loss(self, input, target_is_real, is_disc=False):
-
-        # target_val = (self.real_label_val if target_is_real else self.fake_label_val)
-        # target_val = input.new_ones(input.size()) * target_val
-
         if is_disc:
             if target_is_real:
                 loss = -torch.mean(input)
@@ -34,28 +30,29 @@ class CustomLoss(nn.Module):
         # loss_weight is always 1.0 for discriminators
         return loss if is_disc else loss * self.loss_weight
     
-    # NEED TO REWRITE GRADIENT PENALTY
-    def compute_gradient_penalty_2(D, real_samples, fake_samples):
+    # # NEED TO REWRITE GRADIENT PENALTY
+    # def compute_gradient_penalty_2(D, real_samples, fake_samples):
 
-        # Random weight term for interpolation between real and fake samples
-        alpha = torch.cuda.FloatTensor(np.random.random((real_samples.size(0), 1, 1, 1)))
-        # Get random interpolation between real and fake samples
-        interpolates = (alpha * real_samples + ((1 - alpha) * fake_samples)).requires_grad_(True)
-        d_interpolates = D(interpolates)
-        fake = Variable(torch.cuda.FloatTensor(real_samples.shape[0], 1, 1, 1).fill_(1.0), requires_grad=False)
-        # Get gradient w.r.t. interpolates
-        gradients = autograd.grad(
-            outputs=d_interpolates,
-            inputs=interpolates,
-            grad_outputs=fake,
-            create_graph=True,
-            retain_graph=True,
-            only_inputs=True,
-        )[0]
-        gradients = gradients.view(gradients.size(0), -1)
-        gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
-        return gradient_penalty
+    #     # Random weight term for interpolation between real and fake samples
+    #     alpha = torch.cuda.FloatTensor(np.random.random((real_samples.size(0), 1, 1, 1)))
+    #     # Get random interpolation between real and fake samples
+    #     interpolates = (alpha * real_samples + ((1 - alpha) * fake_samples)).requires_grad_(True)
+    #     d_interpolates = D(interpolates)
+    #     fake = Variable(torch.cuda.FloatTensor(real_samples.shape[0], 1, 1, 1).fill_(1.0), requires_grad=False)
+    #     # Get gradient w.r.t. interpolates
+    #     gradients = autograd.grad(
+    #         outputs=d_interpolates,
+    #         inputs=interpolates,
+    #         grad_outputs=fake,
+    #         create_graph=True,
+    #         retain_graph=True,
+    #         only_inputs=True,
+    #     )[0]
+    #     gradients = gradients.view(gradients.size(0), -1)
+    #     gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+    #     return gradient_penalty
     
+    # Based on the paper "Improved Training of Wasserstein GANs" - https://arxiv.org/abs/1704.00028
     def compute_gradient_penalty(discriminator_model, real_imgs, fake_imgs):
         batch_size = real_imgs.size(0)
 
@@ -67,22 +64,16 @@ class CustomLoss(nn.Module):
 
         # Pass the interpolated image through the Discriminator
         disc_interpolates = discriminator_model(interpolated_imgs)
-
-        fake = torch.ones((batch_size, 1, 1, 1), device = "cuda", requires_grad = False)
         
         # Compute gradients of scores with respect to interpolated samples
         gradients = torch.autograd.grad(outputs = disc_interpolates,
                                         inputs = interpolated_imgs,
-                                        grad_outputs = fake,
+                                        grad_outputs = torch.ones_like(disc_interpolates),
                                         create_graph = True,
                                         retain_graph = True,
                                     )[0]
-        
-        print("Gradient Penalties: ")
-        print(((gradients.norm(2, dim=1) - 1) ** 2).mean())
 
-        gradients = gradients.view(batch_size, -1)
-        gradient_penalty = ((gradients.norm(2, dim = 1) - 1) ** 2).mean()
-        print(gradient_penalty)
+        # Computing the Gradient Penalty
+        gradient_penalty = ((torch.linalg.vector_norm(gradients.reshape((batch_size, -1)), ord = 2, dim = 1) - 1) ** 2).mean()
+
         return gradient_penalty
-        
