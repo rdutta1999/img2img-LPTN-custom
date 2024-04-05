@@ -60,7 +60,7 @@ class CustomLoss(nn.Module):
         batch_size = real_imgs.size(0)
 
         # Random weight term for interpolation between real and fake images
-        weight_term = torch.rand((batch_size, 1, 1, 1), device="cuda")
+        weight_term = torch.rand((batch_size, 1, 1, 1), device = "cuda")
 
         # Interpolating between real and fake samples using the weight term
         interpolated_imgs = (weight_term * real_imgs + ((1 - weight_term) * fake_imgs)).requires_grad_(True)
@@ -68,18 +68,21 @@ class CustomLoss(nn.Module):
         # Pass the interpolated image through the Discriminator
         disc_interpolates = discriminator_model(interpolated_imgs)
 
-        fake = torch.ones((batch_size, 1, 1, 1), device="cuda", requires_grad = False)
+        fake = torch.ones((batch_size, 1, 1, 1), device = "cuda", requires_grad = False)
         
-        # Get gradient w.r.t. interpolates
+        # Compute gradients of scores with respect to interpolated samples
         gradients = torch.autograd.grad(outputs = disc_interpolates,
                                         inputs = interpolated_imgs,
                                         grad_outputs = fake,
                                         create_graph = True,
-                                        # retain_graph = True,
+                                        retain_graph = True,
                                     )[0]
         
         print("Gradient Penalties: ")
+        print(((gradients.norm(2, dim=1) - 1) ** 2).mean())
+
         gradients = gradients.view(batch_size, -1)
         gradient_penalty = ((gradients.norm(2, dim = 1) - 1) ** 2).mean()
+        print(gradient_penalty)
         return gradient_penalty
         
