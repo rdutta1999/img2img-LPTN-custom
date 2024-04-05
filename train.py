@@ -418,18 +418,20 @@ def main():
     device = "cpu"
     if torch.cuda.is_available():
         device = "cuda"
+
+    if platform.system() == "Linux":
+        X_DIR = "/home/kumar/LPTN/datasets/FiveK/FiveK_480p/"
+        Y_DIR = "/home/kumar/LPTN/datasets/FiveK/FiveK_480p/"
+    elif platform.system() == "Windows":
+        X_DIR = "datasets/FiveK_480p/FiveK_480p"
+        Y_DIR = "datasets/FiveK_480p/FiveK_480p"
     
-    # ToDo - Make these args - argparse
-    X_DIR = "/home/kumar/LPTN/datasets/FiveK/FiveK_480p/"
-    Y_DIR = "/home/kumar/LPTN/datasets/FiveK/FiveK_480p/"
 
     X_TRAIN_DIR = os.path.join(X_DIR, "train/A")
     Y_TRAIN_DIR = os.path.join(Y_DIR, "train/B")
-    # X_DIR = "/home/kumar/LPTN/datasets/FiveK/FiveK_480p/"
-    # Y_DIR = "/home/kumar/LPTN/datasets/FiveK/FiveK_480p/"
 
-    # X_VALID_DIR = os.path.join(X_DIR, "test/A")
-    # Y_VALID_DIR = os.path.join(Y_DIR, "test/B")
+    X_VALID_DIR = os.path.join(X_DIR, "test/A")
+    Y_VALID_DIR = os.path.join(Y_DIR, "test/B")
 
     DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
@@ -465,11 +467,11 @@ def main():
                             num_workers = 0, 
                             pin_memory = True)
 
-    # # ToDO  - Define the Loss Functions
 
     # # Define the Model
     model = LPTN_Network()
     disc = Discriminator()
+    
     # # Training Params / HyperParams
     start_epoch = 0
     n_epochs = 500
