@@ -15,7 +15,6 @@ from torchvision.transforms.functional import normalize
 
 from tqdm import tqdm
 from natsort import natsorted
-from tqdm.notebook import tqdm
 from PIL import Image, ImageOps
 from albumentations.pytorch import ToTensorV2
 from torch.utils.data import Dataset, DataLoader
@@ -103,7 +102,7 @@ def augment_normalize(doAugment = True, doNormalize = True, doTensored = True):
                 ], p = 0.2),
 
                 A.OneOf([
-                    #A.AdvancedBlur(p = 0.1),
+                    # A.AdvancedBlur(p = 0.1),
                     A.Blur(p = 0.1),
                     A.GaussianBlur(p = 0.3),
                     A.GlassBlur(p = 0.1),
@@ -111,7 +110,7 @@ def augment_normalize(doAugment = True, doNormalize = True, doTensored = True):
                     A.MotionBlur(p = 0.2),      
                 ], p = 0.2),
             
-                #A.PixelDropout(p = 0.1),  
+                # A.PixelDropout(p = 0.1),  
             ])
             
     transform.extend([
@@ -119,14 +118,12 @@ def augment_normalize(doAugment = True, doNormalize = True, doTensored = True):
         A.Lambda(mask = scale_0_1, p = 1.0),          
     ])
 
-
     # if doNormalize:
     #     transform.append(A.Normalize(mean = [0.485, 0.456, 0.406],
     #                                  std = [0.229, 0.224, 0.225],
     #                                  p = 1.0)
     #     )
 
-        
     if doTensored:
         transform.append(ToTensorV2(p = 1.0, transpose_mask = True))
         
@@ -188,9 +185,9 @@ def train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc,
             p.requires_grad = False       
 
         optimizer_model.zero_grad()  #optimizer.zero_grad(set_to_none = True)
-        output = model(images)        
-        disc_out = disc(output)
-        comp1=criterion[0](output, images) 
+        outputs = model(images)        
+        disc_out = disc(outputs)
+        comp1=criterion[0](outputs, images) 
         comp2=criterion[1](disc_out, target_is_real = True, is_disc=False)
         loss_model =  comp1+comp2
         loss[f"Epoch{epoch}"]['reconstruction_mse']=comp1
@@ -199,21 +196,20 @@ def train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc,
         
         loss_model.backward()
         optimizer_model.step()
-        
-
+    
         # Optimizing the Discriminator
         for p in disc.parameters():
             p.requires_grad = True 
         
         optimizer_disc.zero_grad()
-        output = model(images)
+        outputs = model(images)
         disc_out_real = disc(targets)
         loss_disc_real = criterion[1](disc_out_real, target_is_real = True, is_disc=True)
 
-        disc_out_fake = disc(output)
+        disc_out_fake = disc(outputs)
         loss_disc_fake = criterion[1](disc_out_fake, target_is_real = False, is_disc=True)
 
-        gradient_loss = CustomLoss.compute_gradient_penalty(disc, targets, output)
+        gradient_loss = CustomLoss.compute_gradient_penalty(disc, targets, outputs)
         gp_opt = 100
         loss_disc = loss_disc_real + loss_disc_fake + (gp_opt * gradient_loss)
         loss_disc.backward()
@@ -225,37 +221,75 @@ def train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc,
         
     return loss
 
-def validate(val_loader, model, criterion, epoch, beta):
+def validate(val_loader, model, disc, criterion, epoch, beta):
     model.eval()
+    disc.eval()
     stream = tqdm(val_loader)
+
+    loss = {
+        f"Epoch{epoch}":{
+            
+        }
+    }
     
     with torch.no_grad():
         for i, (images, targets) in enumerate(stream, start=1):
             images = images.to(DEVICE, non_blocking=True, dtype = torch.float)
             targets = targets.to(DEVICE, non_blocking=True, dtype = torch.float)
+            if(len(images.shape)==3):
+                images=images[None,:,:,:]
             
-            outputs = model(images)            
-            loss = criterion(outputs, targets)
-            if moving_loss['valid']:
-                moving_loss['valid'] = beta * moving_loss['valid'] + (1-beta) * loss.item()
-            else:
-                moving_loss['valid'] = loss.item()
+            outputs = model(images)
+            disc_out = disc(outputs)
+            comp1=criterion[0](outputs, images) 
+            comp2=criterion[1](disc_out, target_is_real = True, is_disc=False)
+            loss_model =  comp1+comp2
+            loss[f"Epoch{epoch}"]['reconstruction_mse']=comp1
+            loss[f"Epoch{epoch}"]['reconstruction_gan']=comp2
+            loss[f"Epoch{epoch}"]['reconstruction']=loss_model
             
-            loss_values['valid'].append(moving_loss['valid'])
-            stream.set_description(
-                "Epoch: {epoch}.  --Valid--  Loss: {m_loss:04f}".format(epoch = epoch, m_loss = moving_loss['valid'])
-            )
+            # loss_values['valid'].append(moving_loss['valid'])
+            # stream.set_description(
+            #     "Epoch: {epoch}.  --Valid--  Loss: {m_loss:04f}".format(epoch = epoch, m_loss = moving_loss['valid'])
+            # )
+
+
+            outputs = model(images)
+            disc_out_real = disc(targets)
+            loss_disc_real = criterion[1](disc_out_real, target_is_real = True, is_disc=True)
+
+            disc_out_fake = disc(outputs)
+            loss_disc_fake = criterion[1](disc_out_fake, target_is_real = False, is_disc=True)
+
+            # gradient_loss = CustomLoss.compute_gradient_penalty(disc, targets, outputs)
+            gradient_loss = 0
+            gp_opt = 100
+            loss_disc = loss_disc_real + loss_disc_fake + (gp_opt * gradient_loss)
+            loss[f"Epoch{epoch}"]['discriminator_real']=loss_disc_real
+            loss[f"Epoch{epoch}"]['discriminator_fake']=loss_disc_fake
+            loss[f"Epoch{epoch}"]['discriminator_gradient_loss']=gradient_loss
+            loss[f"Epoch{epoch}"]['discriminator']=loss_disc
+            
+    return loss
 
 def train_and_validate(model, disc, train_loader, val_loader, criterion, optimizer_model, optimizer_disc, start_epoch, 
                        n_epochs, ckpt_dir, save_freq, beta):    
     os.makedirs(ckpt_dir, exist_ok = True)
-    losses={}
+    losses = {"Train": {}, "Valid": {}}
+    
     for epoch in range(start_epoch + 1, start_epoch + n_epochs + 1):  
-        print(f"epoch {epoch}")      
-        loss=train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc, epoch, beta)
-        # validate(val_loader, model, criterion, epoch, beta)
-        losses[f"Epoch{epoch}"]=loss[f"Epoch{epoch}"]
-        print(loss)
+        print(f"epoch {epoch}")  
+
+        train_loss = train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc, epoch, beta)
+        valid_loss = validate(val_loader, model, disc, criterion, epoch, beta)
+
+        # losses[f"Epoch{epoch}"]=loss[f"Epoch{epoch}"]
+
+        losses["Train"] = train_loss
+        losses["Valid"] = valid_loss
+
+        print(losses)        
+
         ckpt_path = os.path.join(ckpt_dir, "{epoch}.pth".format(epoch = epoch))
         
         if epoch % save_freq == 0:
@@ -361,5 +395,4 @@ if __name__=="__main__":
                            n_epochs = n_epochs,                           
                            ckpt_dir = CHECKPOINT_DIR,
                            save_freq = save_freq,
-                           beta = beta,
-                           use_weighted_loss_train = use_weighted_loss_train)
+                           beta = beta)
