@@ -4,7 +4,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 import torchvision
 from torch.nn import functional as F
-from Utils import laplacian_pyramid, reconstruct_image
+from utils import laplacian_pyramid, reconstruct_image
 import cv2
 import numpy as np
 
@@ -20,6 +20,7 @@ class ResidualBlock(nn.Module):
     # Pass through layers and add input to the output
     def forward(self,x):
         return x+self.layers(x)
+
 #Module for network
 class LPTN_Network(nn.Module):
     def __init__(self):
