@@ -133,12 +133,12 @@ def augment_normalize(doAugment = True, doNormalize = True, doTensored = True):
 class CustomDataset(Dataset):
     def __init__(self, images_dir, target_dir, preprocessing = None):
         self.images_dir = images_dir
-        self.target_dir=target_dir
+        self.target_dir = target_dir
         self.preprocessing = preprocessing
 
         
         self.image_ids = natsorted(os.listdir(self.images_dir))        
-        self.target_ids=natsorted(os.listdir(self.target_dir))
+        self.target_ids = natsorted(os.listdir(self.target_dir))
         self.n_imgs = len(self.image_ids)
         print("Number of Images found: ", self.n_imgs)
         
@@ -277,30 +277,34 @@ def validate(val_loader, model, disc, criterion, epoch, beta):
             loss[f"Epoch{epoch}"]['discriminator_gradient_loss']=gradient_loss
             loss[f"Epoch{epoch}"]['discriminator']=loss_disc
 
-            metrics[f"Epoch{epoch}"]["PSNR"] = [calculate_psnr(images[i], outputs[i], crop_border = 4, input_order = "CHW", test_y_channel = False) for i in len(images)]
-            metrics[f"Epoch{epoch}"]["SSIM"] = [calculate_ssim(images[i], outputs[i], crop_border = 4, input_order = "CHW", test_y_channel = False) for i in len(images)]
+            metrics[f"Epoch{epoch}"]["PSNR"] = [calculate_psnr(images[i].detach().cpu().numpy(), outputs[i].detach().cpu().numpy(), crop_border = 4, input_order = "CHW", test_y_channel = False) for i in range(len(images))]
+            metrics[f"Epoch{epoch}"]["SSIM"] = [calculate_ssim(images[i].detach().cpu().numpy(), outputs[i].detach().cpu().numpy(), crop_border = 4, input_order = "CHW", test_y_channel = False) for i in range(len(images))]
             
-    return loss
+    return loss, metrics
 
 def train_and_validate(model, disc, train_loader, val_loader, criterion, optimizer_model, optimizer_disc, start_epoch, 
                        n_epochs, ckpt_dir, save_freq, beta):    
     os.makedirs(ckpt_dir, exist_ok = True)
     losses = {"Train": {}, "Valid": {}}
 
-    metrics = {"SSIM": {}, "PSNR": {}}
+    metrics = {"Train": {}, "Valid": {}}
     
     for epoch in range(start_epoch + 1, start_epoch + n_epochs + 1):  
         print(f"epoch {epoch}")  
 
         train_loss = train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc, epoch, beta)
-        valid_loss = validate(val_loader, model, disc, criterion, epoch, beta)
+        valid_loss, valid_metrics = validate(val_loader, model, disc, criterion, epoch, beta)
 
         # losses[f"Epoch{epoch}"]=loss[f"Epoch{epoch}"]
 
         losses["Train"] = train_loss
         losses["Valid"] = valid_loss
 
-        print(losses)        
+        metrics["Valid"] = valid_metrics
+
+        print(losses)
+        print()
+        print(metrics)  
 
         ckpt_path = os.path.join(ckpt_dir, "{epoch}.pth".format(epoch = epoch))
         
