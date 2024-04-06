@@ -1,7 +1,7 @@
 import numpy as np
 
 # Couldnt find this package in the doc: https://basicsr.readthedocs.io/en/latest/api/basicsr.utils.matlab_functions.html
-from basicsr.utils.matlab_functions import bgr2ycbcr
+# from basicsr.utils.matlab_functions import bgr2ycbcr
 
 
 def reorder_image(img, input_order='HWC'):
@@ -37,7 +37,7 @@ def to_y_channel(img):
 import cv2
 import numpy as np
 
-from basicsr.metrics.metric_util import reorder_image, to_y_channel
+# from basicsr.metrics.metric_util import reorder_image, to_y_channel
 
 
 # def calculate_psnr(img1,

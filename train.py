@@ -28,6 +28,7 @@ sys.path.append("./src/")
 from loss import CustomLoss
 from LPTN_Network import LPTN_Network
 from Discriminator import Discriminator
+from metrics import calculate_psnr, calculate_ssim
 
 def resize_to_inputsz(x, **kwargs):
     
@@ -231,6 +232,12 @@ def validate(val_loader, model, disc, criterion, epoch, beta):
             
         }
     }
+
+    metrics = {
+        f"Epoch{epoch}": {
+
+        }
+    }
     
     with torch.no_grad():
         for i, (images, targets) in enumerate(stream, start=1):
@@ -269,6 +276,9 @@ def validate(val_loader, model, disc, criterion, epoch, beta):
             loss[f"Epoch{epoch}"]['discriminator_fake']=loss_disc_fake
             loss[f"Epoch{epoch}"]['discriminator_gradient_loss']=gradient_loss
             loss[f"Epoch{epoch}"]['discriminator']=loss_disc
+
+            metrics[f"Epoch{epoch}"]["PSNR"] = [calculate_psnr(images[i], outputs[i], crop_border = 4, input_order = "CHW", test_y_channel = False) for i in len(images)]
+            metrics[f"Epoch{epoch}"]["SSIM"] = [calculate_ssim(images[i], outputs[i], crop_border = 4, input_order = "CHW", test_y_channel = False) for i in len(images)]
             
     return loss
 
@@ -276,6 +286,8 @@ def train_and_validate(model, disc, train_loader, val_loader, criterion, optimiz
                        n_epochs, ckpt_dir, save_freq, beta):    
     os.makedirs(ckpt_dir, exist_ok = True)
     losses = {"Train": {}, "Valid": {}}
+
+    metrics = {"SSIM": {}, "PSNR": {}}
     
     for epoch in range(start_epoch + 1, start_epoch + n_epochs + 1):  
         print(f"epoch {epoch}")  
@@ -365,6 +377,8 @@ if __name__=="__main__":
     for k, v in model.named_parameters():
         if v.requires_grad:
             optim_params.append(v)
+
+    # They used MultiStepLR scheduler.
 
     optimizer_model = torch.optim.Adam(optim_params, lr = learning_rate, betas = (0.9, 0.999), eps = 1e-08, weight_decay = 0)
     optimizer_disc = torch.optim.Adam(disc.parameters(), lr = learning_rate, betas = (0.9, 0.999), eps = 1e-08, weight_decay = 0)
