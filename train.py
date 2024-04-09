@@ -1,17 +1,11 @@
 import os
-import cv2
+import sys
 import torch
-import math
 import random
 import platform
 import numpy as np
-import torchvision
 import albumentations as A
-import matplotlib.pyplot as plt
-import torch.nn.functional as F
-import sys
 from torch.utils import data as data
-from torchvision.transforms.functional import normalize
 
 from tqdm import tqdm
 from natsort import natsorted
@@ -50,16 +44,13 @@ def resize_to_inputsz(x, **kwargs):
 
 
 # def get_random_crop(image, **kwargs):
-
 #     max_x = image.shape[1] - INPUT_SZ[0]
 #     max_y = image.shape[0] - INPUT_SZ[1]
-
 #     x = random.randint(0, image.shape[1] - INPUT_SZ[1])
 #     y = random.randint(0, image.shape[0] - INPUT_SZ[0])
-
 #     crop = image[y: y + INPUT_SZ[0], x: x + INPUT_SZ[1]]
-
 #     return crop
+
 # def scale_0_1(x, **kwargs):
 #     return x / 255.
 
