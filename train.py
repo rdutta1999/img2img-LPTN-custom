@@ -165,12 +165,14 @@ class CustomDataset(Dataset):
     def __len__(self):
         return self.n_imgs
      
-def train(train_loader, generator, discriminator, criterion, optimizer_generator, optimizer_discriminator, iteration):
+def train(train_loader, generator, discriminator, criterion, optimizer_generator, optimizer_discriminator, epoch, iteration):
     # Switching both the models to Training mode
     generator.train()
     discriminator.train()
-    
-    for _, (images, targets) in enumerate(tqdm(train_loader, disable=False), start = 1):
+
+    stream = tqdm(train_loader)
+
+    for _, (images, targets) in enumerate(stream, start = 1):
         images = images.to(DEVICE, non_blocking = True, dtype = torch.float)
         targets = targets.to(DEVICE, non_blocking = True, dtype = torch.float)
 
@@ -217,21 +219,24 @@ def train(train_loader, generator, discriminator, criterion, optimizer_generator
         optimizer_discriminator.step()
 
         WRITER.add_scalar('Loss/train/discriminator/gan_real', discriminator_loss_real.detach().cpu().numpy(), global_step = iteration)
-        WRITER.add_scalar('Loss/train/discriminator/gan_fake', discriminator_preds_fake.detach().cpu().numpy(), global_step = iteration)
+        WRITER.add_scalar('Loss/train/discriminator/gan_fake', discriminator_loss_fake.detach().cpu().numpy(), global_step = iteration)
         WRITER.add_scalar('Loss/train/discriminator/gradient_penalty', gradient_loss.detach().cpu().numpy(), global_step = iteration)
         WRITER.add_scalar('Loss/train/discriminator/total', disciminator_loss.detach().cpu().numpy(), global_step = iteration)
 
         iteration += 1
+        stream.set_description(f"Epoch: {epoch}")
         
     return iteration
 
-def validate(val_loader, generator, discriminator, criterion, iteration):
+def validate(val_loader, generator, discriminator, criterion, epoch, iteration):
     # Switching both the models to Evaluation mode
     generator.eval()
     discriminator.eval()
+
+    stream = tqdm(val_loader)
     
     with torch.no_grad():
-        for _, (images, targets) in enumerate(tqdm(val_loader), start = 1):
+        for _, (images, targets) in enumerate(stream, start = 1):
             images = images.to(DEVICE, non_blocking=True, dtype = torch.float)
             targets = targets.to(DEVICE, non_blocking=True, dtype = torch.float)
             
@@ -273,6 +278,7 @@ def validate(val_loader, generator, discriminator, criterion, iteration):
             WRITER.add_scalar('Metrics/valid/SSIM', sum(ssims), global_step = iteration)
 
             iteration += 1
+            stream.set_description(f"Epoch: {epoch}")
 
     return iteration
 
@@ -283,18 +289,18 @@ def train_and_validate(generator, discriminator, train_loader, val_loader, crite
     for epoch in range(start_epoch + 1, start_epoch + n_epochs + 1):
         print(f"epoch {epoch}", train_iteration, valid_iteration) 
 
-        train_iteration = train(train_loader, generator, discriminator, criterion, optimizer_generator, optimizer_discriminator, train_iteration)
-        valid_iteration = validate(val_loader, generator, discriminator, criterion, valid_iteration)
+        train_iteration = train(train_loader, generator, discriminator, criterion, optimizer_generator, optimizer_discriminator, epoch, train_iteration)
+        valid_iteration = validate(val_loader, generator, discriminator, criterion, epoch, valid_iteration)
 
-        ckpt_path = os.path.join(ckpt_dir, "{epoch}.pth".format(epoch = epoch))
-        
         if epoch % save_freq == 0:
+            ckpt_path = os.path.join(ckpt_dir, "{epoch}.pth".format(epoch = epoch))
+
             torch.save({
                 'epoch': epoch,
                 'generator_state_dict': generator.state_dict(),
                 'discriminator_state_dict': discriminator.state_dict(),
-                'optimizer_generator_state_dict': optimizer_model.state_dict(),
-                'optimizer_discriminator_state_dict':optimizer_disc.state_dict(),
+                'optimizer_generator_state_dict': optimizer_generator.state_dict(),
+                'optimizer_discriminator_state_dict': optimizer_discriminator.state_dict(),
                 }, ckpt_path)
         
     return generator, discriminator
@@ -315,7 +321,7 @@ if __name__=="__main__":
     Y_VALID_DIR = os.path.join(DATA_DIR, "test", "B")
 
     # Checkpoint Path
-    CHECKPOINT_DIR = "./model_checkpoints_5"
+    CHECKPOINT_DIR = "./model_checkpoints"
 
     # Use GPU if available
     DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
