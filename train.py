@@ -279,8 +279,6 @@ def train_and_validate(generator, discriminator, train_loader, val_loader, crite
     train_iteration, valid_iteration = 0, 0
     
     for epoch in range(start_epoch + 1, start_epoch + n_epochs + 1):
-        print(f"epoch {epoch}", train_iteration, valid_iteration) 
-
         train_iteration = train(train_loader, generator, discriminator, criterion, optimizer_generator, optimizer_discriminator, epoch, train_iteration)
         valid_iteration = validate(val_loader, generator, discriminator, criterion, epoch, valid_iteration)
 
