@@ -201,9 +201,10 @@ def train(train_loader, generator, discriminator, criterion, optimizer_generator
         generated_images = generator(images)
         discriminator_preds_real = discriminator(targets)
         discriminator_preds_fake = discriminator(generated_images)
+        print(discriminator_preds_real.mean().item(), discriminator_preds_fake.mean().item())
 
-        discriminator_loss_real = criterion[1](discriminator_preds_real, target_is_real = True, is_disc=True)
-        discriminator_loss_fake = criterion[1](discriminator_preds_fake, target_is_real = False, is_disc=True)
+        discriminator_loss_real = criterion[1](discriminator_preds_real, target_is_real = True, is_disc = True)
+        discriminator_loss_fake = criterion[1](discriminator_preds_fake, target_is_real = False, is_disc = True)
         gradient_loss = CustomLoss.compute_gradient_penalty(discriminator, targets, generated_images)
         disciminator_loss = discriminator_loss_real + discriminator_loss_fake + (100 * gradient_loss)
 

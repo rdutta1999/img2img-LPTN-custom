@@ -17,14 +17,14 @@ class CustomLoss(nn.Module):
         mse_loss = torch.nn.MSELoss(reduction='mean')
         return loss_wt * mse_loss(pred_img, inp_img)
     
-    def get_gan_loss(self, input, target_is_real, is_disc=False):
+    def get_gan_loss(self, input, target_is_real, is_disc = False):
         if is_disc:
             if target_is_real:
-                loss = -torch.mean(input)
+                loss = - torch.mean(input)
             else:
                 loss = torch.mean(input)
         else:
-            loss = -torch.mean(input)
+            loss = - torch.mean(input)
 
         # loss_weight is always 1.0 for discriminators
         return loss if is_disc else loss * self.loss_weight
