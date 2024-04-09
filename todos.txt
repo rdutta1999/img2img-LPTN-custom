@@ -3,3 +3,5 @@ Check once if previously the images were being divided by 255 twice
 Confirm the Transfomrations once
 
 Previously, we used to Crop during validation as well. Should we?
+
+Why only few params to be optimized in generator optimizmer?

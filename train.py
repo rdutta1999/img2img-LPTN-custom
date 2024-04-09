@@ -199,7 +199,7 @@ def train(train_loader, generator, discriminator, criterion, optimizer_generator
         ###############################
         # Optimizing the Discrminator #
         ###############################
-        for p in disc.parameters():
+        for p in discriminator.parameters():
             p.requires_grad = True 
         
         optimizer_discriminator.zero_grad()
@@ -210,7 +210,7 @@ def train(train_loader, generator, discriminator, criterion, optimizer_generator
 
         discriminator_loss_real = criterion[1](discriminator_preds_real, target_is_real = True, is_disc=True)
         discriminator_loss_fake = criterion[1](discriminator_preds_fake, target_is_real = False, is_disc=True)
-        gradient_loss = CustomLoss.compute_gradient_penalty(disc, targets, generated_images)
+        gradient_loss = CustomLoss.compute_gradient_penalty(discriminator, targets, generated_images)
         disciminator_loss = discriminator_loss_real + discriminator_loss_fake + (100 * gradient_loss)
 
         disciminator_loss.backward()
@@ -258,7 +258,7 @@ def validate(val_loader, generator, discriminator, criterion, iteration):
 
             discriminator_loss_real = criterion[1](discriminator_preds_real, target_is_real = True, is_disc=True)
             discriminator_loss_fake = criterion[1](discriminator_preds_fake, target_is_real = False, is_disc=True)
-            gradient_loss = torch.tensor(0, dtype = torch.int8) #CustomLoss.compute_gradient_penalty(disc, targets, outputs)
+            gradient_loss = torch.tensor(0, dtype = torch.int8) #CustomLoss.compute_gradient_penalty(discriminator, targets, outputs)
             loss_disc = discriminator_loss_real + discriminator_loss_fake + (100 * gradient_loss)
 
             WRITER.add_scalar('Loss/valid/discriminator/gan_real', discriminator_loss_real.detach().cpu().numpy(), global_step = iteration)
@@ -276,34 +276,33 @@ def validate(val_loader, generator, discriminator, criterion, iteration):
 
     return iteration
 
-def train_and_validate(model, disc, train_loader, val_loader, criterion, optimizer_model, optimizer_disc, start_epoch, n_epochs, ckpt_dir, save_freq):
+def train_and_validate(generator, discriminator, train_loader, val_loader, criterion, optimizer_generator, optimizer_discriminator, start_epoch, n_epochs, ckpt_dir, save_freq):
     os.makedirs(ckpt_dir, exist_ok = True)
     train_iteration, valid_iteration = 0, 0
     
-    for epoch in range(start_epoch + 1, start_epoch + n_epochs + 1):  
-        
-        print(f"epoch {epoch}")
-        print(train_iteration, valid_iteration) 
+    for epoch in range(start_epoch + 1, start_epoch + n_epochs + 1):
+        print(f"epoch {epoch}", train_iteration, valid_iteration) 
 
-        train_iteration = train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc, epoch, train_iteration)
-        valid_iteration = validate(val_loader, model, disc, criterion, epoch, valid_iteration)
+        train_iteration = train(train_loader, generator, discriminator, criterion, optimizer_generator, optimizer_discriminator, train_iteration)
+        valid_iteration = validate(val_loader, generator, discriminator, criterion, valid_iteration)
 
         ckpt_path = os.path.join(ckpt_dir, "{epoch}.pth".format(epoch = epoch))
         
         if epoch % save_freq == 0:
             torch.save({
                 'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'disc_state_dict': disc.state_dict(),
-                'optimizer_disc_state_dict':optimizer_disc.state_dict(),
-                'optimizer_model_state_dict': optimizer_model.state_dict(),
+                'generator_state_dict': generator.state_dict(),
+                'discriminator_state_dict': discriminator.state_dict(),
+                'optimizer_generator_state_dict': optimizer_model.state_dict(),
+                'optimizer_discriminator_state_dict':optimizer_disc.state_dict(),
                 }, ckpt_path)
         
-    return model,disc
+    return generator, discriminator
 
 
 if __name__=="__main__":
 
+    # Data Paths
     if platform.system() == "Linux":
         DATA_DIR = "/home/kumar/LPTN/datasets/FiveK/FiveK_480p/"
     elif platform.system() == "Windows":
@@ -315,19 +314,21 @@ if __name__=="__main__":
     X_VALID_DIR = os.path.join(DATA_DIR, "test", "A")
     Y_VALID_DIR = os.path.join(DATA_DIR, "test", "B")
 
+    # Checkpoint Path
+    CHECKPOINT_DIR = "./model_checkpoints_5"
+
+    # Use GPU if available
     DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-    CHECKPOINT_DIR = "./model_checkpoints_5"
-    
+    # Input Size and Batch Sizes
     INPUT_SZ = (256,256)
     TRAIN_BS = 32
     VALID_BS = 4
 
+    # Tensorboard
     WRITER = SummaryWriter()
 
-    moving_loss = {'train': 0, 'valid': 0}
-    loss_values = {"train": [], "valid": []}
-
+    # Datasets
     train_dataset = CustomDataset(X_TRAIN_DIR, 
                                   Y_TRAIN_DIR,
                                 preprocessing = augment_normalize(doAugment = True, 
@@ -338,7 +339,7 @@ if __name__=="__main__":
                                 preprocessing = augment_normalize(doAugment = False, 
                                                                 doNormalize = True,
                                                                 doTensored = True))
-
+    # Dataloaders
     train_loader = DataLoader(train_dataset, 
                             batch_size = TRAIN_BS, 
                             shuffle = True, 
@@ -352,49 +353,49 @@ if __name__=="__main__":
                             pin_memory = True)
 
 
-    # # Define the Model
-    model = LPTN_Network()
-    disc = Discriminator()
+    # Defining the Models
+    generator = LPTN_Network()
+    discriminator = Discriminator()
 
-    # # Training Params / HyperParams
+    # Training Params / HyperParams
     start_epoch = 0
     n_epochs = 500
 
     learning_rate = 0.0001
     optim_params = []
-    for k, v in model.named_parameters():
+    for k, v in generator.named_parameters():
         if v.requires_grad:
             optim_params.append(v)
 
     # They used MultiStepLR scheduler.
 
-    optimizer_model = torch.optim.Adam(optim_params, lr = learning_rate, betas = (0.9, 0.999), eps = 1e-08, weight_decay = 0)
-    optimizer_disc = torch.optim.Adam(disc.parameters(), lr = learning_rate, betas = (0.9, 0.999), eps = 1e-08, weight_decay = 0)
+    # Optimizers
+    optimizer_generator = torch.optim.Adam(optim_params, lr = learning_rate, betas = (0.9, 0.999), eps = 1e-08, weight_decay = 0)
+    optimizer_discriminator = torch.optim.Adam(discriminator.parameters(), lr = learning_rate, betas = (0.9, 0.999), eps = 1e-08, weight_decay = 0)
 
+    # Loss functions
     custom_loss = CustomLoss()
-
     mse_loss = custom_loss.get_reconstruction_loss
     gan_loss = custom_loss.get_gan_loss
 
+    # Training
     save_freq = 100
     beta = 0.9
     use_weighted_loss_train = True
 
-    moving_loss = {'train': 0, 'valid': 0}
-    loss_values = {"train": [], "valid": []}
+    generator.to(DEVICE)
+    discriminator.to(DEVICE)
+    
+    generator, discriminator = train_and_validate(generator = generator, 
+                                                discriminator = discriminator, 
+                                                train_loader = train_loader, 
+                                                val_loader = val_loader,
+                                                criterion = (mse_loss, gan_loss),
+                                                optimizer_generator = optimizer_generator,
+                                                optimizer_discriminator = optimizer_discriminator,
+                                                start_epoch = start_epoch,
+                                                n_epochs = n_epochs,                           
+                                                ckpt_dir = CHECKPOINT_DIR,
+                                                save_freq = save_freq)
 
-    model.to(DEVICE)
-    disc.to(DEVICE)
-    
-    model, disc = train_and_validate(model, disc, 
-                           train_loader, 
-                           val_loader,
-                           criterion = (mse_loss, gan_loss),
-                           optimizer_model = optimizer_model,
-                           optimizer_disc = optimizer_disc,
-                           start_epoch = start_epoch,
-                           n_epochs = n_epochs,                           
-                           ckpt_dir = CHECKPOINT_DIR,
-                           save_freq = save_freq)
-    
     WRITER.flush()
