@@ -1,10 +1,9 @@
-import math
 import torch
-import numpy as np
-from torch import autograd as autograd
+
 from torch import nn as nn
 from torch.nn import functional as F
 from torch.autograd import Variable
+from torch import autograd as autograd
 
 class CustomLoss(nn.Module):
     def __init__(self):
@@ -29,8 +28,7 @@ class CustomLoss(nn.Module):
 
         # loss_weight is always 1.0 for discriminators
         return loss if is_disc else loss * self.loss_weight
-    
-    # # NEED TO REWRITE GRADIENT PENALTY
+
     # def compute_gradient_penalty_2(D, real_samples, fake_samples):
 
     #     # Random weight term for interpolation between real and fake samples

@@ -18,6 +18,7 @@ from natsort import natsorted
 from PIL import Image, ImageOps
 from albumentations.pytorch import ToTensorV2
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
 np.random.seed(10)
 random.seed(16)
@@ -30,50 +31,49 @@ from LPTN_Network import LPTN_Network
 from Discriminator import Discriminator
 from metrics import calculate_psnr, calculate_ssim
 
-def resize_to_inputsz(x, **kwargs):
+# def resize_to_inputsz(x, **kwargs):
     
-    # For RGB images with 3 channels:
-    if x.shape[-1] == 3:        
-        y = Image.fromarray(x)
-        y = y.resize(INPUT_SZ, resample = Image.LANCZOS)
-        y = np.array(y)
+#     # For RGB images with 3 channels:
+#     if x.shape[-1] == 3:        
+#         y = Image.fromarray(x)
+#         y = y.resize(INPUT_SZ, resample = Image.LANCZOS)
+#         y = np.array(y)
         
-    #For Masks with 1 channel:
-    if x.shape[-1] == 1:
-        x = x.squeeze()
-        y = Image.fromarray(x)
-        y = y.resize(INPUT_SZ, resample = Image.LANCZOS)
-        y = np.array(y)
-        y = np.expand_dims(y, -1)
+#     #For Masks with 1 channel:
+#     if x.shape[-1] == 1:
+#         x = x.squeeze()
+#         y = Image.fromarray(x)
+#         y = y.resize(INPUT_SZ, resample = Image.LANCZOS)
+#         y = np.array(y)
+#         y = np.expand_dims(y, -1)
             
-    return y
-def get_random_crop(image, **kwargs):
+#     return y
+# def get_random_crop(image, **kwargs):
 
-    max_x = image.shape[1] - INPUT_SZ[0]
-    max_y = image.shape[0] - INPUT_SZ[1]
+#     max_x = image.shape[1] - INPUT_SZ[0]
+#     max_y = image.shape[0] - INPUT_SZ[1]
 
-    x = random.randint(0, image.shape[1] - INPUT_SZ[1])
-    y = random.randint(0, image.shape[0] - INPUT_SZ[0])
+#     x = random.randint(0, image.shape[1] - INPUT_SZ[1])
+#     y = random.randint(0, image.shape[0] - INPUT_SZ[0])
 
-    crop = image[y: y + INPUT_SZ[0], x: x + INPUT_SZ[1]]
+#     crop = image[y: y + INPUT_SZ[0], x: x + INPUT_SZ[1]]
 
-    return crop
-def scale_0_1(x, **kwargs):
-    
-    return x / 255.
+#     return crop
+# def scale_0_1(x, **kwargs):
+#     return x / 255.
 
 def augment_normalize(doAugment = True, doNormalize = True, doTensored = True):
     transform = []
     
     if doAugment:
-        doCropTransform = False
+        doCropTransform = True
         doGeometricTransform = True
         doVisualTransform = False       
         
         if doCropTransform:
             transform.extend([
-                A.CropAndPad(percent = (-0.02,-0.2), keep_size = False, 
-                             sample_independently = True, p = 0.5),
+                # A.CropAndPad(percent = (-0.02,-0.2), keep_size = False, sample_independently = True, p = 0.5),
+                A.RandomCrop(height = INPUT_SZ[0], width = INPUT_SZ[1], p = 1.0)
             ])
             
         if doGeometricTransform:
@@ -114,16 +114,14 @@ def augment_normalize(doAugment = True, doNormalize = True, doTensored = True):
                 # A.PixelDropout(p = 0.1),  
             ])
             
-    transform.extend([
-        A.Lambda(image = get_random_crop, mask = get_random_crop, p = 1.0),
-        A.Lambda(mask = scale_0_1, p = 1.0),          
-    ])
+    # transform.extend([
+    #     A.Lambda(image = get_random_crop, mask = get_random_crop, p = 1.0),
+    #     A.Lambda(mask = scale_0_1, p = 1.0),          
+    # ])
 
-    # if doNormalize:
-    #     transform.append(A.Normalize(mean = [0.485, 0.456, 0.406],
-    #                                  std = [0.229, 0.224, 0.225],
-    #                                  p = 1.0)
-    #     )
+    if doNormalize:
+        # transform.append(A.Normalize(mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225], p = 1.0))
+        transform.append(A.Normalize(mean = 0, std = 1, p = 1.0))
 
     if doTensored:
         transform.append(ToTensorV2(p = 1.0, transpose_mask = True))
@@ -153,8 +151,8 @@ class CustomDataset(Dataset):
         target = Image.open(target_path)
         # image = ImageOps.exif_transpose(image)
 
-        image_arr = np.array(image).astype(np.float32) / 255     
-        target_arr = np.array(target).astype(np.float32) / 255     
+        image_arr = np.array(image).astype(np.float32)   
+        target_arr = np.array(target).astype(np.float32)   
         
         image_T, target_T = None, None 
         if self.preprocessing:
@@ -165,35 +163,29 @@ class CustomDataset(Dataset):
     def __len__(self):
         return self.n_imgs
      
-def train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc, epoch, beta):
+def train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc, epoch, iteration):
     model.train()
     disc.train()
-    stream = tqdm(train_loader, disable=False)
-    loss={
-        f"Epoch{epoch}":{
-            
-        }
-    }
     
-    for i, (images, targets) in enumerate(stream, start=1): 
+    for _, (images, targets) in enumerate(tqdm(train_loader, disable=False), start = 1): 
+        print("TRAIN ", images.shape, targets.shape)
         images = images.to(DEVICE, non_blocking = True, dtype = torch.float)
         targets = targets.to(DEVICE, non_blocking = True, dtype = torch.float)
-        if(len(images.shape)==3):
-            images=images[None,:,:,:]
 
         # Optimizing the Generator
         for p in disc.parameters():
-            p.requires_grad = False       
+            p.requires_grad = False    
 
         optimizer_model.zero_grad()  #optimizer.zero_grad(set_to_none = True)
         outputs = model(images)        
         disc_out = disc(outputs)
-        comp1=criterion[0](outputs, images) 
-        comp2=criterion[1](disc_out, target_is_real = True, is_disc=False)
-        loss_model =  comp1+comp2
-        loss[f"Epoch{epoch}"]['reconstruction_mse']=comp1
-        loss[f"Epoch{epoch}"]['reconstruction_gan']=comp2
-        loss[f"Epoch{epoch}"]['reconstruction']=loss_model
+        comp1 = criterion[0](outputs, images) 
+        comp2 = criterion[1](disc_out, target_is_real = True, is_disc = False)
+        loss_model = comp1 + comp2
+
+        WRITER.add_scalar('Loss/train/generator/reconstruction', comp1.detach().cpu().numpy(), global_step = iteration)
+        WRITER.add_scalar('Loss/train/generator/gan', comp2.detach().cpu().numpy(), global_step = iteration)
+        WRITER.add_scalar('Loss/train/generator/total', loss_model.detach().cpu().numpy(), global_step = iteration)
         
         loss_model.backward()
         optimizer_model.step()
@@ -215,51 +207,35 @@ def train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc,
         loss_disc = loss_disc_real + loss_disc_fake + (gp_opt * gradient_loss)
         loss_disc.backward()
         optimizer_disc.step()
-        loss[f"Epoch{epoch}"]['discriminator_real']=loss_disc_real
-        loss[f"Epoch{epoch}"]['discriminator_fake']=loss_disc_fake
-        loss[f"Epoch{epoch}"]['discriminator_gradient_loss']=gradient_loss
-        loss[f"Epoch{epoch}"]['discriminator']=loss_disc
-        
-    return loss
 
-def validate(val_loader, model, disc, criterion, epoch, beta):
+        WRITER.add_scalar('Loss/train/discriminator/gan_real', loss_disc_real.detach().cpu().numpy(), global_step = iteration)
+        WRITER.add_scalar('Loss/train/discriminator/gan_fake', loss_disc_fake.detach().cpu().numpy(), global_step = iteration)
+        WRITER.add_scalar('Loss/train/discriminator/gradient_penalty', gradient_loss.detach().cpu().numpy(), global_step = iteration)
+        WRITER.add_scalar('Loss/train/discriminator/total', loss_disc.detach().cpu().numpy(), global_step = iteration)
+
+        iteration += 1
+        
+    return iteration
+
+def validate(val_loader, model, disc, criterion, epoch, iteration):
     model.eval()
     disc.eval()
-    stream = tqdm(val_loader)
-
-    loss = {
-        f"Epoch{epoch}":{
-            
-        }
-    }
-
-    metrics = {
-        f"Epoch{epoch}": {
-
-        }
-    }
     
     with torch.no_grad():
-        for i, (images, targets) in enumerate(stream, start=1):
+        for _, (images, targets) in enumerate(tqdm(val_loader), start = 1):
+            print("VALID ", images.shape, targets.shape)
             images = images.to(DEVICE, non_blocking=True, dtype = torch.float)
             targets = targets.to(DEVICE, non_blocking=True, dtype = torch.float)
-            if(len(images.shape)==3):
-                images=images[None,:,:,:]
             
             outputs = model(images)
             disc_out = disc(outputs)
             comp1=criterion[0](outputs, images) 
             comp2=criterion[1](disc_out, target_is_real = True, is_disc=False)
             loss_model =  comp1+comp2
-            loss[f"Epoch{epoch}"]['reconstruction_mse']=comp1
-            loss[f"Epoch{epoch}"]['reconstruction_gan']=comp2
-            loss[f"Epoch{epoch}"]['reconstruction']=loss_model
-            
-            # loss_values['valid'].append(moving_loss['valid'])
-            # stream.set_description(
-            #     "Epoch: {epoch}.  --Valid--  Loss: {m_loss:04f}".format(epoch = epoch, m_loss = moving_loss['valid'])
-            # )
 
+            WRITER.add_scalar('Loss/valid/generator/reconstruction', comp1.detach().cpu().numpy(), global_step = iteration)
+            WRITER.add_scalar('Loss/valid/generator/gan', comp2.detach().cpu().numpy(), global_step = iteration)
+            WRITER.add_scalar('Loss/valid/generator/total', loss_model.detach().cpu().numpy(), global_step = iteration)
 
             outputs = model(images)
             disc_out_real = disc(targets)
@@ -268,43 +244,36 @@ def validate(val_loader, model, disc, criterion, epoch, beta):
             disc_out_fake = disc(outputs)
             loss_disc_fake = criterion[1](disc_out_fake, target_is_real = False, is_disc=True)
 
-            # gradient_loss = CustomLoss.compute_gradient_penalty(disc, targets, outputs)
-            gradient_loss = 0
+            gradient_loss = torch.tensor(0, dtype = torch.int8) #CustomLoss.compute_gradient_penalty(disc, targets, outputs)
             gp_opt = 100
             loss_disc = loss_disc_real + loss_disc_fake + (gp_opt * gradient_loss)
-            loss[f"Epoch{epoch}"]['discriminator_real']=loss_disc_real
-            loss[f"Epoch{epoch}"]['discriminator_fake']=loss_disc_fake
-            loss[f"Epoch{epoch}"]['discriminator_gradient_loss']=gradient_loss
-            loss[f"Epoch{epoch}"]['discriminator']=loss_disc
 
-            metrics[f"Epoch{epoch}"]["PSNR"] = [calculate_psnr(images[i].detach().cpu().numpy(), outputs[i].detach().cpu().numpy(), crop_border = 4, input_order = "CHW", test_y_channel = False) for i in range(len(images))]
-            metrics[f"Epoch{epoch}"]["SSIM"] = [calculate_ssim(images[i].detach().cpu().numpy(), outputs[i].detach().cpu().numpy(), crop_border = 4, input_order = "CHW", test_y_channel = False) for i in range(len(images))]
-            
-    return loss, metrics
 
-def train_and_validate(model, disc, train_loader, val_loader, criterion, optimizer_model, optimizer_disc, start_epoch, 
-                       n_epochs, ckpt_dir, save_freq, beta):    
+            WRITER.add_scalar('Loss/valid/discriminator/gan_real', loss_disc_real.detach().cpu().numpy(), global_step = iteration)
+            WRITER.add_scalar('Loss/valid/discriminator/gan_fake', loss_disc_fake.detach().cpu().numpy(), global_step = iteration)
+            WRITER.add_scalar('Loss/valid/discriminator/gradient_penalty', gradient_loss.detach().cpu().numpy(), global_step = iteration)
+            WRITER.add_scalar('Loss/valid/discriminator/total', loss_disc.detach().cpu().numpy(), global_step = iteration)
+
+            psnrs = [calculate_psnr(images[i].detach().cpu().numpy(), outputs[i].detach().cpu().numpy(), crop_border = 4, input_order = "CHW", test_y_channel = False) for i in range(len(images))]
+            ssims = [calculate_ssim(images[i].detach().cpu().numpy(), outputs[i].detach().cpu().numpy(), crop_border = 4, input_order = "CHW", test_y_channel = False) for i in range(len(images))]
+            WRITER.add_scalar('Metrics/valid/PSNR', sum(psnrs), global_step = iteration)
+            WRITER.add_scalar('Metrics/valid/SSIM', sum(ssims), global_step = iteration)
+
+            iteration += 1
+
+    return iteration
+
+def train_and_validate(model, disc, train_loader, val_loader, criterion, optimizer_model, optimizer_disc, start_epoch, n_epochs, ckpt_dir, save_freq):
     os.makedirs(ckpt_dir, exist_ok = True)
-    losses = {"Train": {}, "Valid": {}}
-
-    metrics = {"Train": {}, "Valid": {}}
+    train_iteration, valid_iteration = 0, 0
     
     for epoch in range(start_epoch + 1, start_epoch + n_epochs + 1):  
-        print(f"epoch {epoch}")  
+        
+        print(f"epoch {epoch}")
+        print(train_iteration, valid_iteration) 
 
-        train_loss = train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc, epoch, beta)
-        valid_loss, valid_metrics = validate(val_loader, model, disc, criterion, epoch, beta)
-
-        # losses[f"Epoch{epoch}"]=loss[f"Epoch{epoch}"]
-
-        losses["Train"] = train_loss
-        losses["Valid"] = valid_loss
-
-        metrics["Valid"] = valid_metrics
-
-        print(losses)
-        print()
-        print(metrics)  
+        train_iteration = train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc, epoch, train_iteration)
+        valid_iteration = validate(val_loader, model, disc, criterion, epoch, valid_iteration)
 
         ckpt_path = os.path.join(ckpt_dir, "{epoch}.pth".format(epoch = epoch))
         
@@ -340,6 +309,8 @@ if __name__=="__main__":
     INPUT_SZ = (256,256)
     TRAIN_BS = 32
     VALID_BS = 4
+
+    WRITER = SummaryWriter()
 
     moving_loss = {'train': 0, 'valid': 0}
     loss_values = {"train": [], "valid": []}
@@ -387,7 +358,6 @@ if __name__=="__main__":
     optimizer_model = torch.optim.Adam(optim_params, lr = learning_rate, betas = (0.9, 0.999), eps = 1e-08, weight_decay = 0)
     optimizer_disc = torch.optim.Adam(disc.parameters(), lr = learning_rate, betas = (0.9, 0.999), eps = 1e-08, weight_decay = 0)
 
-    # # DEFINE LOSS FUNC
     custom_loss = CustomLoss()
 
     mse_loss = custom_loss.get_reconstruction_loss
@@ -412,5 +382,6 @@ if __name__=="__main__":
                            start_epoch = start_epoch,
                            n_epochs = n_epochs,                           
                            ckpt_dir = CHECKPOINT_DIR,
-                           save_freq = save_freq,
-                           beta = beta)
+                           save_freq = save_freq)
+    
+    WRITER.flush()
