@@ -70,7 +70,7 @@ def augment_normalize(doAugment = True, doNormalize = True, doTensored = True):
             
         if doGeometricTransform:
             transform.extend([
-                A.Flip(p=0.8)
+                A.Flip(p = 0.8)
             ])
         
         if doVisualTransform:
@@ -142,7 +142,8 @@ class CustomDataset(Dataset):
 
         image = Image.open(image_path)
         target = Image.open(target_path)
-        # image = ImageOps.exif_transpose(image)
+        image = ImageOps.exif_transpose(image)
+        target = ImageOps.exif_transpose(target)
 
         image_arr = np.array(image)  
         target_arr = np.array(target) 
@@ -327,7 +328,7 @@ if __name__=="__main__":
 
     # Datasets
     train_dataset = CustomDataset(X_TRAIN_DIR, 
-                                  Y_TRAIN_DIR,
+                                Y_TRAIN_DIR,
                                 preprocessing = augment_normalize(doAugment = True, 
                                                                 doNormalize = True,
                                                                 doTensored = True))
@@ -349,7 +350,6 @@ if __name__=="__main__":
                             num_workers = 0, 
                             pin_memory = True)
 
-
     # Defining the Models
     generator = LPTN_Network()
     discriminator = Discriminator()
@@ -357,14 +357,11 @@ if __name__=="__main__":
     # Training Params / HyperParams
     start_epoch = 0
     n_epochs = 500
-
     learning_rate = 0.0001
     optim_params = []
     for k, v in generator.named_parameters():
         if v.requires_grad:
             optim_params.append(v)
-
-    # They used MultiStepLR scheduler.
 
     # Optimizers
     optimizer_generator = torch.optim.Adam(optim_params, lr = learning_rate, betas = (0.9, 0.999), eps = 1e-08, weight_decay = 0)

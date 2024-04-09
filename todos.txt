@@ -5,3 +5,5 @@ Confirm the Transfomrations once
 Previously, we used to Crop during validation as well. Should we?
 
 Why only few params to be optimized in generator optimizmer?
+
+Add MultiStepLR if needed
