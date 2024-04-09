@@ -31,23 +31,24 @@ from LPTN_Network import LPTN_Network
 from Discriminator import Discriminator
 from metrics import calculate_psnr, calculate_ssim
 
-# def resize_to_inputsz(x, **kwargs):
-    
-#     # For RGB images with 3 channels:
-#     if x.shape[-1] == 3:        
-#         y = Image.fromarray(x)
-#         y = y.resize(INPUT_SZ, resample = Image.LANCZOS)
-#         y = np.array(y)
+def resize_to_inputsz(x, **kwargs):
+    # For RGB images with 3 channels:
+    if x.shape[-1] == 3:        
+        y = Image.fromarray(x)
+        y = y.resize(INPUT_SZ, resample = Image.LANCZOS)
+        y = np.array(y)
         
-#     #For Masks with 1 channel:
-#     if x.shape[-1] == 1:
-#         x = x.squeeze()
-#         y = Image.fromarray(x)
-#         y = y.resize(INPUT_SZ, resample = Image.LANCZOS)
-#         y = np.array(y)
-#         y = np.expand_dims(y, -1)
+    #For Masks with 1 channel:
+    if x.shape[-1] == 1:
+        x = x.squeeze()
+        y = Image.fromarray(x)
+        y = y.resize(INPUT_SZ, resample = Image.LANCZOS)
+        y = np.array(y)
+        y = np.expand_dims(y, -1)
             
-#     return y
+    return y
+
+
 # def get_random_crop(image, **kwargs):
 
 #     max_x = image.shape[1] - INPUT_SZ[0]
@@ -113,11 +114,12 @@ def augment_normalize(doAugment = True, doNormalize = True, doTensored = True):
             
                 # A.PixelDropout(p = 0.1),  
             ])
-            
-    # transform.extend([
-    #     A.Lambda(image = get_random_crop, mask = get_random_crop, p = 1.0),
-    #     A.Lambda(mask = scale_0_1, p = 1.0),          
-    # ])
+
+    transform.extend([
+        A.Lambda(image = resize_to_inputsz, mask = resize_to_inputsz, p = 1.0),
+        # A.Lambda(image = get_random_crop, mask = get_random_crop, p = 1.0),
+        # A.Lambda(mask = scale_0_1, p = 1.0),         
+    ])
 
     if doNormalize:
         # transform.append(A.Normalize(mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225], p = 1.0))
@@ -151,8 +153,8 @@ class CustomDataset(Dataset):
         target = Image.open(target_path)
         # image = ImageOps.exif_transpose(image)
 
-        image_arr = np.array(image).astype(np.float32)   
-        target_arr = np.array(target).astype(np.float32)   
+        image_arr = np.array(image)  
+        target_arr = np.array(target) 
         
         image_T, target_T = None, None 
         if self.preprocessing:
@@ -163,99 +165,110 @@ class CustomDataset(Dataset):
     def __len__(self):
         return self.n_imgs
      
-def train(train_loader, model, disc, criterion, optimizer_model, optimizer_disc, epoch, iteration):
-    model.train()
-    disc.train()
+def train(train_loader, generator, discriminator, criterion, optimizer_generator, optimizer_discriminator, iteration):
+    # Switching both the models to Training mode
+    generator.train()
+    discriminator.train()
     
-    for _, (images, targets) in enumerate(tqdm(train_loader, disable=False), start = 1): 
-        print("TRAIN ", images.shape, targets.shape)
+    for _, (images, targets) in enumerate(tqdm(train_loader, disable=False), start = 1):
         images = images.to(DEVICE, non_blocking = True, dtype = torch.float)
         targets = targets.to(DEVICE, non_blocking = True, dtype = torch.float)
 
-        # Optimizing the Generator
-        for p in disc.parameters():
+        ############################
+        # Optimizing the Generator #
+        ############################
+        for p in discriminator.parameters():
             p.requires_grad = False    
 
-        optimizer_model.zero_grad()  #optimizer.zero_grad(set_to_none = True)
-        outputs = model(images)        
-        disc_out = disc(outputs)
-        comp1 = criterion[0](outputs, images) 
-        comp2 = criterion[1](disc_out, target_is_real = True, is_disc = False)
-        loss_model = comp1 + comp2
+        optimizer_generator.zero_grad()  #optimizer.zero_grad(set_to_none = True)
 
-        WRITER.add_scalar('Loss/train/generator/reconstruction', comp1.detach().cpu().numpy(), global_step = iteration)
-        WRITER.add_scalar('Loss/train/generator/gan', comp2.detach().cpu().numpy(), global_step = iteration)
-        WRITER.add_scalar('Loss/train/generator/total', loss_model.detach().cpu().numpy(), global_step = iteration)
+        generated_images = generator(images)
+        discriminator_preds = discriminator(generated_images)
+
+        reconstruction_loss = criterion[0](generated_images, images) 
+        gan_loss = criterion[1](discriminator_preds, target_is_real = True, is_disc = False)
+        generator_loss = reconstruction_loss + gan_loss
+
+        WRITER.add_scalar('Loss/train/generator/reconstruction', reconstruction_loss.detach().cpu().numpy(), global_step = iteration)
+        WRITER.add_scalar('Loss/train/generator/gan', gan_loss.detach().cpu().numpy(), global_step = iteration)
+        WRITER.add_scalar('Loss/train/generator/total', generator_loss.detach().cpu().numpy(), global_step = iteration)
         
-        loss_model.backward()
-        optimizer_model.step()
+        generator_loss.backward()
+        optimizer_generator.step()
     
-        # Optimizing the Discriminator
+        ###############################
+        # Optimizing the Discrminator #
+        ###############################
         for p in disc.parameters():
             p.requires_grad = True 
         
-        optimizer_disc.zero_grad()
-        outputs = model(images)
-        disc_out_real = disc(targets)
-        loss_disc_real = criterion[1](disc_out_real, target_is_real = True, is_disc=True)
+        optimizer_discriminator.zero_grad()
 
-        disc_out_fake = disc(outputs)
-        loss_disc_fake = criterion[1](disc_out_fake, target_is_real = False, is_disc=True)
+        generated_images = generator(images)
+        discriminator_preds_real = discriminator(targets)
+        discriminator_preds_fake = discriminator(generated_images)
 
-        gradient_loss = CustomLoss.compute_gradient_penalty(disc, targets, outputs)
-        gp_opt = 100
-        loss_disc = loss_disc_real + loss_disc_fake + (gp_opt * gradient_loss)
-        loss_disc.backward()
-        optimizer_disc.step()
+        discriminator_loss_real = criterion[1](discriminator_preds_real, target_is_real = True, is_disc=True)
+        discriminator_loss_fake = criterion[1](discriminator_preds_fake, target_is_real = False, is_disc=True)
+        gradient_loss = CustomLoss.compute_gradient_penalty(disc, targets, generated_images)
+        disciminator_loss = discriminator_loss_real + discriminator_loss_fake + (100 * gradient_loss)
 
-        WRITER.add_scalar('Loss/train/discriminator/gan_real', loss_disc_real.detach().cpu().numpy(), global_step = iteration)
-        WRITER.add_scalar('Loss/train/discriminator/gan_fake', loss_disc_fake.detach().cpu().numpy(), global_step = iteration)
+        disciminator_loss.backward()
+        optimizer_discriminator.step()
+
+        WRITER.add_scalar('Loss/train/discriminator/gan_real', discriminator_loss_real.detach().cpu().numpy(), global_step = iteration)
+        WRITER.add_scalar('Loss/train/discriminator/gan_fake', discriminator_preds_fake.detach().cpu().numpy(), global_step = iteration)
         WRITER.add_scalar('Loss/train/discriminator/gradient_penalty', gradient_loss.detach().cpu().numpy(), global_step = iteration)
-        WRITER.add_scalar('Loss/train/discriminator/total', loss_disc.detach().cpu().numpy(), global_step = iteration)
+        WRITER.add_scalar('Loss/train/discriminator/total', disciminator_loss.detach().cpu().numpy(), global_step = iteration)
 
         iteration += 1
         
     return iteration
 
-def validate(val_loader, model, disc, criterion, epoch, iteration):
-    model.eval()
-    disc.eval()
+def validate(val_loader, generator, discriminator, criterion, iteration):
+    # Switching both the models to Evaluation mode
+    generator.eval()
+    discriminator.eval()
     
     with torch.no_grad():
         for _, (images, targets) in enumerate(tqdm(val_loader), start = 1):
-            print("VALID ", images.shape, targets.shape)
             images = images.to(DEVICE, non_blocking=True, dtype = torch.float)
             targets = targets.to(DEVICE, non_blocking=True, dtype = torch.float)
             
-            outputs = model(images)
-            disc_out = disc(outputs)
-            comp1=criterion[0](outputs, images) 
-            comp2=criterion[1](disc_out, target_is_real = True, is_disc=False)
-            loss_model =  comp1+comp2
+            ############################
+            # Validating the Generator #
+            ############################
+            generated_images = generator(images)
+            discriminator_preds = discriminator(generated_images)
 
-            WRITER.add_scalar('Loss/valid/generator/reconstruction', comp1.detach().cpu().numpy(), global_step = iteration)
-            WRITER.add_scalar('Loss/valid/generator/gan', comp2.detach().cpu().numpy(), global_step = iteration)
-            WRITER.add_scalar('Loss/valid/generator/total', loss_model.detach().cpu().numpy(), global_step = iteration)
+            reconstruction_loss = criterion[0](generated_images, images) 
+            gan_loss = criterion[1](discriminator_preds, target_is_real = True, is_disc=False)
+            generator_loss =  reconstruction_loss + gan_loss
 
-            outputs = model(images)
-            disc_out_real = disc(targets)
-            loss_disc_real = criterion[1](disc_out_real, target_is_real = True, is_disc=True)
+            WRITER.add_scalar('Loss/valid/generator/reconstruction', reconstruction_loss.detach().cpu().numpy(), global_step = iteration)
+            WRITER.add_scalar('Loss/valid/generator/gan', gan_loss.detach().cpu().numpy(), global_step = iteration)
+            WRITER.add_scalar('Loss/valid/generator/total', generator_loss.detach().cpu().numpy(), global_step = iteration)
 
-            disc_out_fake = disc(outputs)
-            loss_disc_fake = criterion[1](disc_out_fake, target_is_real = False, is_disc=True)
+            ###############################
+            # Validating the Discrminator #
+            ###############################
+            generated_images = generator(images)
+            discriminator_preds_real = discriminator(targets)
+            discriminator_preds_fake = discriminator(generated_images)
 
+            discriminator_loss_real = criterion[1](discriminator_preds_real, target_is_real = True, is_disc=True)
+            discriminator_loss_fake = criterion[1](discriminator_preds_fake, target_is_real = False, is_disc=True)
             gradient_loss = torch.tensor(0, dtype = torch.int8) #CustomLoss.compute_gradient_penalty(disc, targets, outputs)
-            gp_opt = 100
-            loss_disc = loss_disc_real + loss_disc_fake + (gp_opt * gradient_loss)
+            loss_disc = discriminator_loss_real + discriminator_loss_fake + (100 * gradient_loss)
 
-
-            WRITER.add_scalar('Loss/valid/discriminator/gan_real', loss_disc_real.detach().cpu().numpy(), global_step = iteration)
-            WRITER.add_scalar('Loss/valid/discriminator/gan_fake', loss_disc_fake.detach().cpu().numpy(), global_step = iteration)
+            WRITER.add_scalar('Loss/valid/discriminator/gan_real', discriminator_loss_real.detach().cpu().numpy(), global_step = iteration)
+            WRITER.add_scalar('Loss/valid/discriminator/gan_fake', discriminator_loss_fake.detach().cpu().numpy(), global_step = iteration)
             WRITER.add_scalar('Loss/valid/discriminator/gradient_penalty', gradient_loss.detach().cpu().numpy(), global_step = iteration)
             WRITER.add_scalar('Loss/valid/discriminator/total', loss_disc.detach().cpu().numpy(), global_step = iteration)
 
-            psnrs = [calculate_psnr(images[i].detach().cpu().numpy(), outputs[i].detach().cpu().numpy(), crop_border = 4, input_order = "CHW", test_y_channel = False) for i in range(len(images))]
-            ssims = [calculate_ssim(images[i].detach().cpu().numpy(), outputs[i].detach().cpu().numpy(), crop_border = 4, input_order = "CHW", test_y_channel = False) for i in range(len(images))]
+            psnrs = [calculate_psnr(images[i].detach().cpu().numpy(), generated_images[i].detach().cpu().numpy(), crop_border = 4, input_order = "CHW", test_y_channel = False) for i in range(len(images))]
+            ssims = [calculate_ssim(images[i].detach().cpu().numpy(), generated_images[i].detach().cpu().numpy(), crop_border = 4, input_order = "CHW", test_y_channel = False) for i in range(len(images))]
+
             WRITER.add_scalar('Metrics/valid/PSNR', sum(psnrs), global_step = iteration)
             WRITER.add_scalar('Metrics/valid/SSIM', sum(ssims), global_step = iteration)
 
