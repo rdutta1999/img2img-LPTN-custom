@@ -3,7 +3,7 @@ import torchvision
 
 from torch import nn
 from torch.nn import functional as F
-from utils import laplacian_pyramid, reconstruct_image
+from Utils import laplacian_pyramid, reconstruct_image
 
 # Define residual block as stated in paper, residual block has two conv layers with leaky relus in between and allows for the input to factor into the output
 class ResidualBlock(nn.Module):
