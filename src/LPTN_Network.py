@@ -85,7 +85,7 @@ class LPTN_Network(nn.Module):
         # Following the paper closely here, variable names could use some work as earlier
         low_freq_output = low_freq_output + low_freq_component
         low_freq_output = torch.tanh(low_freq_output)
-        torchvision.utils.save_image(low_freq_output, "Our_Result_1Level_Output.png")
+        # torchvision.utils.save_image(low_freq_output, "Our_Result_1Level_Output.png")
         # input()
         # High frequency component
         high_freq_component = pyramid[-2]
