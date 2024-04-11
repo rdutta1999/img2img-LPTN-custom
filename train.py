@@ -30,6 +30,11 @@ from metrics import calculate_psnr, calculate_ssim
 
 def resize_to_inputsz(x, **kwargs):
     # For RGB images with 3 channels:
+    # print(x.shape)
+    # print(x)
+    # input()
+    
+    # if(x.shape[-1]!=3):
     if x.shape[-1] == 3:        
         y = Image.fromarray(x)
         y = y.resize(INPUT_SZ, resample = Image.LANCZOS)
@@ -133,6 +138,10 @@ class CustomDataset(Dataset):
         
         self.image_ids = natsorted(os.listdir(self.images_dir))        
         self.target_ids = natsorted(os.listdir(self.target_dir))
+        if(len(self.image_ids)>len(self.target_ids)):
+            self.image_ids=self.image_ids[0:len(self.target_ids)]
+        if(len(self.target_ids) > len(self.image_ids)):
+            self.target_ids=self.target_ids[0:len(self.image_ids)]
         self.n_imgs = len(self.image_ids)
         print("Number of Images found: ", self.n_imgs)
         
@@ -145,12 +154,24 @@ class CustomDataset(Dataset):
 
         image = Image.open(image_path)
         target = Image.open(target_path)
+        # if image.mode == 'CMYK':
+        #     image = image.convert('RGB')
+        # if target.mode == 'CMYK':
+        #     target = target.convert('RGB')
+
         image = ImageOps.exif_transpose(image)
         target = ImageOps.exif_transpose(target)
 
         image_arr = np.array(image)  
         target_arr = np.array(target) 
-        
+        if(image.mode=="L"):
+            image_arr=cv2.cvtColor(image_arr, cv2.COLOR_GRAY2RGB)
+        if(image.mode=="RGBA"):
+            image_arr=cv2.cvtColor(image_arr, cv2.COLOR_RGBA2RGB)
+        if(target.mode=="L"):
+            target_arr=cv2.cvtColor(target_arr, cv2.COLOR_GRAY2RGB)
+        if(target.mode=="RGBA"):
+            target_arr=cv2.cvtColor(target_arr, cv2.COLOR_RGBA2RGB)
         image_T, target_T = None, None 
         if self.preprocessing:
             image_T = self.preprocessing(image = image_arr)['image']
@@ -245,7 +266,7 @@ def train(train_loader, generator, discriminator, criterion, optimizer_generator
 
     return iteration
 
-def validate(val_loader, generator, discriminator, criterion, epoch, iteration, visualize):
+def validate(val_loader, generator, discriminator, criterion, epoch, iteration):
     # Switching both the models to Evaluation mode
     generator.eval()
     discriminator.eval()
@@ -341,27 +362,35 @@ def visualization(generator, val_loader, ckpt_dir,epoch):
     
     with torch.no_grad():
         for _, (images, targets) in enumerate(stream, start = 0):
-            assert new_loader.dataset.image_ids[_] == new_loader.dataset.target_ids[_]
+            # assert new_loader.dataset.image_ids[_] == new_loader.dataset.target_ids[_]
             save_dir=os.path.join(ckpt_dir,"Visualizations","{epoch}".format(epoch = epoch))
             if(not os.path.exists(save_dir)):
                 os.makedirs(save_dir, exist_ok=True)
             save_path=os.path.join(save_dir, new_loader.dataset.image_ids[_])
             images = images.to(DEVICE, non_blocking = True, dtype = torch.float)
             targets = targets.to(DEVICE, non_blocking = True, dtype = torch.float)
-            in_image= cv2.cvtColor((images.squeeze(0).permute(1, 2, 0).cpu().numpy()*255).astype(np.uint8),cv2.COLOR_RGB2BGR)
-            out_image=generator(images).squeeze(0).permute(1, 2, 0).cpu().numpy()            
-            out_image=cv2.cvtColor((255*(out_image - np.min(out_image))/np.ptp(out_image)).astype(np.uint8), cv2.COLOR_RGB2BGR)             
-            # out_image= cv2.cvtColor((generator(images).squeeze(0).permute(1, 2, 0).cpu().numpy()*255).astype(np.uint8), cv2.COLOR_RGB2BGR)
-            actual_image=cv2.cvtColor((targets.squeeze(0).permute(1, 2, 0).cpu().numpy()*255).astype(np.uint8), cv2.COLOR_RGB2BGR)
-            saved_img=np.hstack([in_image, out_image,actual_image])
-            cv2.imwrite(save_path, saved_img)
+            if(targets.shape==images.shape):
+                in_image= cv2.cvtColor((images.squeeze(0).permute(1, 2, 0).cpu().numpy()*255).astype(np.uint8),cv2.COLOR_RGB2BGR)
+                out_image=generator(images)
+                out_image=out_image.squeeze(0).mul(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to("cpu", torch.uint8).numpy()                       
+                out_image=cv2.cvtColor(out_image, cv2.COLOR_RGB2BGR)             
+                # out_image= cv2.cvtColor((generator(images).squeeze(0).permute(1, 2, 0).cpu().numpy()*255).astype(np.uint8), cv2.COLOR_RGB2BGR)
+                actual_image=cv2.cvtColor((targets.squeeze(0).permute(1, 2, 0).cpu().numpy()*255).astype(np.uint8), cv2.COLOR_RGB2BGR)
+                saved_img=np.hstack([in_image, out_image,actual_image])
+                cv2.imwrite(save_path, saved_img)
+            else:
+                out_image=generator(images)
+                out_image=out_image.squeeze(0).mul(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to("cpu", torch.uint8).numpy()                       
+                out_image=cv2.cvtColor(out_image, cv2.COLOR_RGB2BGR)             
+                cv2.imwrite(save_path, out_image)
+
             
 def train_and_validate(generator, discriminator, train_loader, val_loader, criterion, optimizer_generator, optimizer_discriminator, start_epoch, n_epochs, ckpt_dir, save_freq, visualize):
     os.makedirs(ckpt_dir, exist_ok = True)
     train_iteration, valid_iteration = 0, 0
     for epoch in range(start_epoch + 1, start_epoch + n_epochs + 1):
         train_iteration = train(train_loader, generator, discriminator, criterion, optimizer_generator, optimizer_discriminator, epoch, train_iteration)
-        valid_iteration = validate(val_loader, generator, discriminator, criterion, epoch, valid_iteration, visualize)
+        valid_iteration = validate(val_loader, generator, discriminator, criterion, epoch, valid_iteration)
 
         if epoch % save_freq == 0:
             ckpt_path = os.path.join(ckpt_dir,"Checkpoints" ,"{epoch}.pth".format(epoch = epoch))
@@ -396,7 +425,18 @@ def main(args):
         X_VALID_DIR = os.path.join(DATA_DIR, "test", "A")
         Y_VALID_DIR = os.path.join(DATA_DIR, "test", "B")
     elif(args.DatasetType.lower()=="summer2winter"):
-        raise Exception("Not implemented YET!")
+        X_TRAIN_DIR = os.path.join(DATA_DIR, "summer")
+        Y_TRAIN_DIR = os.path.join(DATA_DIR, "winter")
+
+        X_VALID_DIR = os.path.join(DATA_DIR, "test_summer")
+        Y_VALID_DIR = os.path.join(DATA_DIR, "test_winter")
+    elif(args.DatasetType.lower()=="day2night"):
+        X_TRAIN_DIR = os.path.join(DATA_DIR, "day")
+        Y_TRAIN_DIR = os.path.join(DATA_DIR, "night")
+
+        X_VALID_DIR = os.path.join(DATA_DIR, "test_day")
+        Y_VALID_DIR = os.path.join(DATA_DIR, "test_night")
+        
     else:
         raise Exception("Dataset type not supported!")
 

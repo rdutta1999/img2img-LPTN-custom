@@ -154,7 +154,6 @@ def _ssim(img1, img2):
     img2 = img2.astype(np.float64)
     kernel = cv2.getGaussianKernel(11, 1.5)
     window = np.outer(kernel, kernel.transpose())
-
     mu1 = cv2.filter2D(img1, -1, window)[5:-5, 5:-5]
     mu2 = cv2.filter2D(img2, -1, window)[5:-5, 5:-5]
     mu1_sq = mu1**2
@@ -202,8 +201,10 @@ def calculate_ssim(img1,
     assert img1.shape == img2.shape, (f'Image shapes are differnet: {img1.shape}, {img2.shape}.')
     if input_order not in ['HWC', 'CHW']:
         raise ValueError(f'Wrong input_order {input_order}. Supported input_orders are "HWC" and "CHW"')
+    
     img1 = reorder_image(img1, input_order=input_order)
     img2 = reorder_image(img2, input_order=input_order)
+    
     img1 = img1.astype(np.float64)
     img2 = img2.astype(np.float64)
 
