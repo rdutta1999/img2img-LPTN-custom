@@ -213,7 +213,7 @@ def train(train_loader, generator, discriminator, criterion, optimizer_generator
         generated_images = generator(images)
         discriminator_preds_real = discriminator(targets)
         discriminator_preds_fake = discriminator(generated_images)
-        print(discriminator_preds_real.mean().item(), discriminator_preds_fake.mean().item())
+        # print(discriminator_preds_real.mean().item(), discriminator_preds_fake.mean().item())
 
         discriminator_loss_real = criterion[1](discriminator_preds_real, target_is_real = True, is_disc = True)
         discriminator_loss_fake = criterion[1](discriminator_preds_fake, target_is_real = False, is_disc = True)
@@ -301,8 +301,8 @@ def validate(val_loader, generator, discriminator, criterion, epoch, iteration, 
             discriminator_gradient_penalties.append(gradient_loss)
             discriminator_losses_total.append(loss_disc)
 
-            psnrs = [calculate_psnr(images[i].detach().cpu().numpy(), generated_images[i].detach().cpu().numpy(), crop_border = 4, input_order = "CHW", test_y_channel = False) for i in range(len(images))]
-            ssims = [calculate_ssim(images[i].detach().cpu().numpy(), generated_images[i].detach().cpu().numpy(), crop_border = 4, input_order = "CHW", test_y_channel = False) for i in range(len(images))]
+            psnrs = [calculate_psnr(targets[i].detach().cpu().numpy(), generated_images[i].detach().cpu().numpy(), crop_border = 4, input_order = "CHW", test_y_channel = False) for i in range(len(images))]
+            ssims = [calculate_ssim(targets[i].detach().cpu().numpy(), generated_images[i].detach().cpu().numpy(), crop_border = 4, input_order = "CHW", test_y_channel = False) for i in range(len(images))]
             all_psnrs.append(sum(psnrs))
             all_ssims.append(sum(ssims))
             
@@ -545,5 +545,5 @@ if __name__=="__main__":
     parser.add_argument("--SaveFreq", help="How often to save the model", type=int, default=10)
     # Data Paths
     args=parser.parse_args()
-    print(args)
+    # print(args)
     main(args)
