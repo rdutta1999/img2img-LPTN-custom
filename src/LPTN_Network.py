@@ -3,6 +3,7 @@ import torchvision
 
 from torch import nn
 from torch.nn import functional as F
+import time
 from Utils import laplacian_pyramid, reconstruct_image
 
 # Define residual block as stated in paper, residual block has two conv layers with leaky relus in between and allows for the input to factor into the output
@@ -26,7 +27,7 @@ class LPTN_Network(nn.Module):
         # Assign the pyramid construction method and the reconstruction method to the object
         self.construct_pyramid = laplacian_pyramid
         self.reconstruct_image = reconstruct_image
-        
+        self.duration=NotImplemented
         # 4 layers in pyramid (including last layer)
         self.depth = 4
 
@@ -75,7 +76,7 @@ class LPTN_Network(nn.Module):
 
     def forward(self, x):
         #Construct pyramid from input, x is a tensor of dimensions (N, C, W, H), typically C will be 3 as we're working with RGB images
-        
+        start = time.time()
         pyramid = laplacian_pyramid(x, self.depth, next(self.parameters()).device) 
         # Extract bottom layer of the pyramid
         low_freq_component = pyramid[-1]
@@ -107,4 +108,5 @@ class LPTN_Network(nn.Module):
         other_freq_component_2_output = self.other_freq_2_layers(other_freq_component_2_output)
         # Return pyramid of components in order from largest to smallest to allow for reconstruction, should we return reconstruction as well? Depends on loss implementation
         # return mask_upsampled_2_output
+        self.duration = (time.time() - start)         
         return reconstruct_image([other_freq_component_2_output, other_freq_component_1_output, high_freq_output, low_freq_output], self.depth)
